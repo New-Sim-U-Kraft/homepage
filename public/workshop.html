@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>创意工坊</title>
+    <meta name="description" content="浏览 NewSimUKraft 创意工坊内容，登录后可投稿住宅、商业、工业、公共与其他分类作品。" />
+    <link rel="icon" href="/assets/logo.png" type="image/png" />
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem("site-theme");
+          const theme = saved || "light";
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+        } catch {
+          document.documentElement.dataset.theme = "dark";
+          document.documentElement.style.colorScheme = "dark";
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260608-02" />
+  </head>
+  <body>
+    <div class="page-transition is-hidden" id="page-transition" aria-hidden="true">
+      <div class="page-transition__inner">
+        <svg class="page-transition__spinner" viewBox="0 0 50 50" aria-hidden="true">
+          <circle r="25" cx="25" cy="25"></circle>
+        </svg>
+        <p class="page-transition__text">LOADING</p>
+      </div>
+    </div>
+    <script>
+      (() => {
+        try {
+          const raw = sessionStorage.getItem("page-transition-pending");
+          if (!raw) return;
+          const at = Number(raw);
+          const overlay = document.getElementById("page-transition");
+          if (!(overlay instanceof HTMLElement)) return;
+          if (Number.isFinite(at) && Date.now() - at < 8000) {
+            overlay.classList.remove("is-hidden", "is-leaving");
+            overlay.classList.add("is-spinning");
+            overlay.dataset.shownAt = String(performance.now());
+            document.body.classList.add("is-page-transitioning");
+          } else {
+            sessionStorage.removeItem("page-transition-pending");
+          }
+        } catch {
+        }
+      })();
+    </script>
+
+    <header class="topbar">
+      <a class="brand" href="/">
+        <img class="brand__logo" src="/assets/logo.png" alt="Logo" onerror="this.onerror=null;this.src='/logo.svg';" />
+        <span class="brand__text">NewSimUKraft</span>
+      </a>
+      <nav class="nav">
+        <a href="/">首页</a>
+        <a href="/workshop.html">创意工坊</a>
+        <a href="/gallery.html">图集</a>
+        <a class="nav__btn" href="/feedback.html">反馈</a>
+        <button class="theme-toggle" type="button" data-theme-toggle="1" aria-label="切换主题">
+          <span class="theme-toggle__icon" data-theme-icon>☀</span>
+          <span class="theme-toggle__label" data-theme-label>亮色</span>
+        </button>
+      </nav>
+    </header>
+
+    <main>
+      <section class="section">
+        <div class="section__head" data-kicker="workshop">
+          <h1 class="h1">创意工坊</h1>
+          <p>登录玩家可以投稿自己的内容，审核通过后会展示在这里，供其他玩家下载使用。</p>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step__num">1</div>
+            <div>
+              <div class="step__title">选择分类</div>
+              <div class="step__desc">支持其他、住宅、商业、工业、公共五类投稿，分类仅用于归档展示，不再影响上传文件种类。</div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step__num">2</div>
+            <div>
+              <div class="step__title">上传 NBT</div>
+              <div class="step__desc">创意工坊现在只上传 NBT 文件，其他补充内容统一改为填写外部链接，不再上传 SK 或 JSON。</div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step__num">3</div>
+            <div>
+              <div class="step__title">预览与审核</div>
+              <div class="step__desc">NBT 上传后可通过 NBT Viewer 打开预览，管理员可在后台通过或带原因打回。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__head section__head--row" data-kicker="approved">
+          <div>
+            <h2>已通过作品</h2>
+            <p>这里只展示审核通过的创意工坊内容。</p>
+          </div>
+          <div class="panel__row" style="margin: 0;">
+            <label class="label" for="workshop-filter">分类筛选</label>
+            <select class="select" id="workshop-filter"></select>
+          </div>
+        </div>
+        <div class="workshop-grid" id="workshop-grid">
+          <div class="panel panel--empty">创意工坊内容加载中...</div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__head" data-kicker="submit">
+          <h2>投稿入口</h2>
+          <p>登录后才能提交创意工坊内容，未登录时可先从右上角账户入口进入登录页。</p>
+        </div>
+        <div class="panel">
+          <div class="hint" id="workshop-auth-hint">正在检查登录状态...</div>
+          <form class="form" id="workshop-form" style="margin-top: 12px;">
+            <div class="grid grid--2">
+              <div class="field">
+                <div class="field__label">作品名称</div>
+                <input class="input" id="workshop-title" maxlength="60" placeholder="例如 现代商店街 01" required />
+              </div>
+              <div class="field">
+                <div class="field__label">投稿分类</div>
+                <select class="select" id="workshop-category" required></select>
+              </div>
+            </div>
+            <div class="field">
+              <div class="field__label">描述介绍</div>
+              <textarea class="textarea" id="workshop-description" maxlength="1200" placeholder="请说明作品用途、结构特点、适用场景或放置说明。" required></textarea>
+            </div>
+            <div class="grid grid--2">
+              <div class="field">
+                <div class="field__label">NBT 文件</div>
+                <input class="input" id="workshop-file-nbt" type="file" accept=".nbt" required />
+              </div>
+              <div class="field">
+                <div class="field__label">补充说明</div>
+                <div class="hint" id="workshop-file-hint">只需上传一个 NBT 文件；作品卡片和审核页都会提供 `NBT Viewer` 预览入口。</div>
+              </div>
+            </div>
+            <div class="field">
+              <div class="button-row" style="justify-content:space-between;align-items:center;">
+                <div class="field__label" style="margin:0;">附加外链</div>
+                <button class="btn btn--ghost" type="button" id="workshop-link-add">添加外链</button>
+              </div>
+              <div class="link-editor" id="workshop-links" style="margin-top:8px;"></div>
+              <div class="hint">这里可以填写教程页、演示视频、配套下载页等站外链接。</div>
+            </div>
+            <div class="form__actions">
+              <div class="hint">提交后会进入待审核状态，审核通过前不会公开显示。</div>
+              <button class="btn btn--primary" type="submit">提交投稿</button>
+            </div>
+          </form>
+          <div class="toast" id="workshop-toast"></div>
+        </div>
+      </section>
+
+      <section class="section" id="workshop-mine-section" hidden>
+        <div class="section__head" data-kicker="mine">
+          <h2>我的投稿</h2>
+          <p>这里会显示你自己的待审核、已通过和被打回记录。</p>
+        </div>
+        <div class="history is-open" id="workshop-mine-list">
+          <div class="history__item">
+            <div class="history__left">
+              <div class="history__name">投稿记录加载中...</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/assets/site.js?v=20260608-02"></script>
+    <script type="module" src="/assets/workshop.js?v=20260608-02"></script>
+  </body>
+</html>

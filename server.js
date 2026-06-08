@@ -1,8 +1,10 @@
 import express from "express";
 import path from "path";
 import fs from "fs/promises";
-import { createReadStream, existsSync, watch } from "fs";
+import { existsSync, watch } from "fs";
 import crypto from "crypto";
+import nbt from "prismarine-nbt";
+import { createRequire } from "module";
 
 const app = express();
 app.disable("x-powered-by");
@@ -17,6 +19,7 @@ const GALLERY_DIR = path.join(UPLOADS_DIR, "gallery");
 const DEVELOPER_COVERS_DIR = path.join(UPLOADS_DIR, "developers");
 const USER_AVATARS_DIR = path.join(UPLOADS_DIR, "users");
 const FEEDBACK_UPLOADS_DIR = path.join(UPLOADS_DIR, "feedback");
+const WORKSHOP_UPLOADS_DIR = path.join(UPLOADS_DIR, "workshop");
 const DEVELOPER_SHELL_HTML = path.join(PUBLIC_DIR, "developer-shell.html");
 const CONFIG_DIR = path.join(PUBLIC_DIR, "config");
 const ANNOUNCEMENTS_TXT = path.join(CONFIG_DIR, "announcements.txt");
@@ -26,6 +29,34 @@ const CHANGELOG_JSON = path.join(CONFIG_DIR, "changelog.json");
 const ASSETS_DIR = path.join(PUBLIC_DIR, "assets");
 const DEFAULT_AVATAR_URL = "/assets/logo.png";
 const USER_INTRO_MAX_LENGTH = 80;
+const WORKSHOP_TITLE_MAX_LENGTH = 60;
+const WORKSHOP_DESCRIPTION_MAX_LENGTH = 1200;
+const WORKSHOP_REVIEW_REASON_MAX_LENGTH = 200;
+const WORKSHOP_RENDER_BLOCK_LIMIT = 25_000;
+const WORKSHOP_FILE_KINDS = ["nbt"];
+const MINECRAFT_ASSETS_VERSION = "1.21.8";
+const WORKSHOP_CATEGORY_META = {
+  other: { key: "other", label: "其他" },
+  residence: { key: "residence", label: "住宅" },
+  commercial: { key: "commercial", label: "商业" },
+  industrial: { key: "industrial", label: "工业" },
+  public: { key: "public", label: "公共" },
+};
+const THREE_BUILD_DIR = path.join(ROOT_DIR, "node_modules", "three", "build");
+const MINECRAFT_ASSETS_DIR = path.join(
+  ROOT_DIR,
+  "node_modules",
+  "minecraft-assets",
+  "minecraft-assets",
+  "data",
+  MINECRAFT_ASSETS_VERSION,
+);
+const AIR_BLOCK_NAMES = new Set([
+  "minecraft:air",
+  "minecraft:cave_air",
+  "minecraft:void_air",
+  "minecraft:structure_void",
+]);
 const PREVIEW_BRANCH_PATTERN = /(beta|preview|alpha|test|internal|sponsor|内测|尝鲜)/i;
 const FIXED_BRANCHES = ["main", "neoforge", "sponsor"];
 const SPONSOR_BRANCHES = new Set(["sponsor", "beta", "preview", "internal"]);
@@ -76,6 +107,9 @@ const FORCE_PORT =
   process.env.FORCE_PORT === "1" ||
   process.env.FORCE_PORT === "true" ||
   process.env.FORCE_PORT === "yes";
+const require = createRequire(import.meta.url);
+const minecraftAssets = require("minecraft-assets")("1.21.8");
+const workshopTextureCache = new Map();
 
 function getDebugLogFilePath(sessionId) {
   const safeSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
@@ -327,6 +361,29 @@ function parseFileNameFromUrl(url) {
   }
 }
 
+function sanitizeExternalModKey(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw || raw.length > 80) return "";
+  if (/[\\/\x00-\x1f]/.test(raw)) return "";
+  return raw;
+}
+
+function sanitizeExternalModTitle(value, fallback) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const safeFallback = typeof fallback === "string" && fallback.trim() ? fallback.trim() : "未命名版本";
+  return (raw || safeFallback).slice(0, 80);
+}
+
+function sanitizeExternalModDescription(value) {
+  return typeof value === "string" ? value.trim().slice(0, 120) : "";
+}
+
+function normalizeExternalModTimestamp(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const ms = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : new Date().toISOString();
+}
+
 function normalizeExternalLink(link, index) {
   if (!link || typeof link !== "object") return null;
   const url = typeof link.url === "string" ? link.url.trim() : "";
@@ -360,16 +417,19 @@ function parseExternalConfigEntry(entry) {
   const links = linksRaw
     .map((link, index) => normalizeExternalLink(link, index))
     .filter(Boolean);
-  const fileName =
+  const fileName = sanitizeExternalModKey(
     (typeof entry?.fileName === "string" ? entry.fileName.trim() : "") ||
+    (typeof entry?.id === "string" ? entry.id.trim() : "") ||
     (links[0]?.url ? parseFileNameFromUrl(links[0].url) : "") ||
-    "";
+    (typeof entry?.title === "string" ? entry.title.trim() : ""),
+  );
   if (!fileName) return null;
 
-  const description = typeof entry?.description === "string" ? entry.description.trim() : "";
-
-  if (links.length === 0 && !description) return null;
-  return { branch, fileName, description, links };
+  if (links.length === 0) return null;
+  const title = sanitizeExternalModTitle(entry?.title, formatVersionGuess(fileName));
+  const description = sanitizeExternalModDescription(entry?.description);
+  const updatedAt = normalizeExternalModTimestamp(entry?.updatedAt);
+  return { branch, fileName, title, description, links, updatedAt };
 }
 
 async function readExternalModsConfig() {
@@ -471,6 +531,10 @@ function isValidModFileName(fileName) {
   );
 }
 
+function isValidExternalModKey(value) {
+  return Boolean(sanitizeExternalModKey(value));
+}
+
 function isValidImageFileName(fileName) {
   return (
     typeof fileName === "string" &&
@@ -497,6 +561,337 @@ function isValidFeedbackFileName(fileName) {
 
 function normalizeFeedbackType(type) {
   return type === "bug" ? "bug" : "suggestion";
+}
+
+function normalizeIsoTimestamp(value, fallback = new Date()) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const ms = raw ? Date.parse(raw) : NaN;
+  if (Number.isFinite(ms)) return new Date(ms).toISOString();
+  const safeFallback = fallback instanceof Date && !Number.isNaN(fallback.getTime())
+    ? fallback
+    : new Date();
+  return safeFallback.toISOString();
+}
+
+function normalizeWorkshopCategory(value) {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!raw) return "";
+  if (raw === "other" || raw === "其他") return "other";
+  if (raw === "residence" || raw === "housing" || raw === "住宅") return "residence";
+  if (raw === "commercial" || raw === "商业") return "commercial";
+  if (raw === "industrial" || raw === "工业") return "industrial";
+  if (raw === "public" || raw === "公共") return "public";
+  return "";
+}
+
+function getWorkshopCategoryMeta(value) {
+  const key = normalizeWorkshopCategory(value);
+  return WORKSHOP_CATEGORY_META[key] ?? null;
+}
+
+function listWorkshopCategories() {
+  return Object.values(WORKSHOP_CATEGORY_META).map((item) => ({
+    key: item.key,
+    label: item.label,
+  }));
+}
+
+function getWorkshopRequiredKinds(category) {
+  const meta = getWorkshopCategoryMeta(category);
+  if (!meta) return [];
+  return ["nbt"];
+}
+
+function isValidWorkshopFileName(kind, fileName) {
+  if (!isValidFeedbackFileName(fileName)) return false;
+  if (kind === "nbt") return /\.nbt$/i.test(fileName);
+  return false;
+}
+
+function sanitizeWorkshopText(value, maxLength) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function sanitizeWorkshopAttachment(item, kind, draftId) {
+  if (!item || typeof item !== "object" || !isValidFeedbackDraftId(draftId)) return null;
+  const name = typeof item.name === "string" ? item.name.trim() : "";
+  const url = typeof item.url === "string" ? item.url.trim() : "";
+  const size = Number(item.size ?? 0);
+  const expectedPrefix = `/uploads/workshop/${encodeURIComponent(draftId)}/${kind}/`;
+  if (!isValidWorkshopFileName(kind, name) || !url.startsWith(expectedPrefix)) return null;
+  return {
+    kind,
+    name,
+    url,
+    size: Number.isFinite(size) && size > 0 ? size : 0,
+  };
+}
+
+function sanitizeWorkshopFiles(files, category, draftId) {
+  if (!files || typeof files !== "object") return null;
+  const result = {};
+  for (const kind of WORKSHOP_FILE_KINDS) {
+    const attachment = sanitizeWorkshopAttachment(files[kind], kind, draftId);
+    if (attachment) result[kind] = attachment;
+  }
+  const requiredKinds = getWorkshopRequiredKinds(category);
+  if (requiredKinds.length === 0 || requiredKinds.some((kind) => !result[kind])) return null;
+  return result;
+}
+
+function sanitizeWorkshopExternalLinks(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item, index) => normalizeExternalLink(item, index))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function normalizeWorkshopStatus(value) {
+  if (value === "approved" || value === "rejected") return value;
+  return "pending";
+}
+
+function sanitizeWorkshopEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const categoryKey = normalizeWorkshopCategory(entry.category) || "other";
+  const categoryMeta = getWorkshopCategoryMeta(categoryKey);
+  if (!categoryMeta) return null;
+  const draftId = typeof entry.draftId === "string" ? entry.draftId.trim() : "";
+  const title = sanitizeWorkshopText(entry.title, WORKSHOP_TITLE_MAX_LENGTH);
+  const description = sanitizeWorkshopText(entry.description, WORKSHOP_DESCRIPTION_MAX_LENGTH);
+  const externalLinks = sanitizeWorkshopExternalLinks(entry.externalLinks);
+  const authorUsername = normalizeUsername(entry.authorUsername);
+  const authorDisplayName = sanitizeWorkshopText(
+    entry.authorDisplayName || entry.authorUsername,
+    40,
+  );
+  if (!draftId || !isValidFeedbackDraftId(draftId) || !title || !description || !authorUsername) {
+    return null;
+  }
+  const files = sanitizeWorkshopFiles(entry.files, categoryKey, draftId);
+  if (!files) return null;
+
+  const createdAt = normalizeIsoTimestamp(entry.createdAt);
+  const updatedAt = normalizeIsoTimestamp(entry.updatedAt, new Date(createdAt));
+  const status = normalizeWorkshopStatus(entry.status);
+  const reviewedAt = status === "pending" ? null : normalizeIsoTimestamp(entry.reviewedAt, new Date(updatedAt));
+  const publishedAt = status === "approved"
+    ? normalizeIsoTimestamp(entry.publishedAt || reviewedAt || updatedAt, new Date(updatedAt))
+    : null;
+
+  return {
+    id: typeof entry.id === "string" && entry.id.trim() ? entry.id.trim() : randomId(),
+    draftId,
+    title,
+    category: categoryMeta.key,
+    description,
+    files,
+    externalLinks,
+    authorUsername,
+    authorDisplayName: authorDisplayName || authorUsername,
+    status,
+    reviewReason:
+      status === "rejected"
+        ? sanitizeWorkshopText(entry.reviewReason, WORKSHOP_REVIEW_REASON_MAX_LENGTH)
+        : "",
+    reviewedBy: status === "pending" ? "" : sanitizeWorkshopText(entry.reviewedBy, 40),
+    createdAt,
+    updatedAt,
+    reviewedAt,
+    publishedAt,
+  };
+}
+
+function fileUrlToLocalPath(fileUrl) {
+  const raw = typeof fileUrl === "string" ? fileUrl.trim() : "";
+  if (!raw.startsWith("/uploads/workshop/")) return null;
+  const relative = raw
+    .replace(/^\/+/, "")
+    .split("/")
+    .map((part) => decodeURIComponent(part))
+    .join(path.sep);
+  return safeJoin(PUBLIC_DIR, relative);
+}
+
+function sanitizeNbtPreviewValue(value, depth = 0) {
+  if (depth > 32) return "[Depth limit]";
+  if (typeof value === "bigint") return `${value}n`;
+  if (Array.isArray(value)) {
+    return value.slice(0, 512).map((item) => sanitizeNbtPreviewValue(item, depth + 1));
+  }
+  if (value && typeof value === "object") {
+    const output = {};
+    let count = 0;
+    for (const [key, nested] of Object.entries(value)) {
+      output[key] = sanitizeNbtPreviewValue(nested, depth + 1);
+      count += 1;
+      if (count >= 512) break;
+    }
+    return output;
+  }
+  return value;
+}
+
+function normalizeMinecraftAssetKey(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  return raw
+    .replace(/^minecraft:/, "")
+    .replace(/^blocks?\//, "")
+    .replace(/^textures\/blocks?\//, "")
+    .replace(/\.png$/i, "");
+}
+
+function normalizeMinecraftModelKey(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  return raw
+    .replace(/^minecraft:/, "")
+    .replace(/^models\//, "")
+    .replace(/^blocks?\//, "")
+    .replace(/\.json$/i, "");
+}
+
+function resolveMinecraftModelTextures(modelKey, seen = new Set()) {
+  const normalizedKey = normalizeMinecraftModelKey(modelKey);
+  if (!normalizedKey || seen.has(normalizedKey)) return {};
+  seen.add(normalizedKey);
+  const model = minecraftAssets?.blocksModels?.[normalizedKey];
+  if (!model || typeof model !== "object") return {};
+  const parentTextures = resolveMinecraftModelTextures(model.parent, seen);
+  return {
+    ...parentTextures,
+    ...(model.textures && typeof model.textures === "object" ? model.textures : {}),
+  };
+}
+
+function resolveMinecraftTextureRef(textureMap, key, depth = 0) {
+  if (!textureMap || typeof textureMap !== "object" || !key || depth > 12) return "";
+  const rawValue = textureMap[key];
+  if (typeof rawValue !== "string" || !rawValue.trim()) return "";
+  const value = rawValue.trim();
+  if (value.startsWith("#")) {
+    return resolveMinecraftTextureRef(textureMap, value.slice(1), depth + 1);
+  }
+  return normalizeMinecraftAssetKey(value);
+}
+
+function getTextureContentByKey(textureKey) {
+  const normalizedKey = normalizeMinecraftAssetKey(textureKey);
+  const pngPath = safeJoin(MINECRAFT_ASSETS_DIR, "blocks", `${normalizedKey}.png`);
+  if (pngPath && existsSync(pngPath)) {
+    const urlPath = normalizedKey
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
+    return `/vendor/minecraft-assets/${MINECRAFT_ASSETS_VERSION}/blocks/${urlPath}.png`;
+  }
+  const entry = minecraftAssets?.textureContent?.[normalizedKey];
+  return typeof entry?.texture === "string" ? entry.texture : "";
+}
+
+function buildWorkshopTextureSet(blockName) {
+  const normalizedBlockName = normalizeMinecraftAssetKey(blockName);
+  if (!normalizedBlockName) return null;
+  const cached = workshopTextureCache.get(normalizedBlockName);
+  if (cached) return cached;
+
+  const blockEntry = minecraftAssets?.blocks?.[normalizedBlockName] ?? null;
+  const textureMap = resolveMinecraftModelTextures(blockEntry?.model || normalizedBlockName);
+  const directTexture = normalizeMinecraftAssetKey(blockEntry?.texture);
+  const pick = (...candidates) => {
+    for (const candidate of candidates) {
+      const fromMap = resolveMinecraftTextureRef(textureMap, candidate);
+      if (fromMap) return fromMap;
+    }
+    return directTexture;
+  };
+
+  const sideKey = pick("side", "north", "south", "west", "east", "all", "texture", "particle", "end", "top", "bottom");
+  const topKey = pick("top", "up", "end", "all", "texture", "side", "particle", "bottom");
+  const bottomKey = pick("bottom", "down", "end", "all", "texture", "side", "particle", "top");
+  const frontKey = pick("front", "north", "side", "all", "texture", "particle", "top");
+
+  const textureSet = {
+    top: getTextureContentByKey(topKey || sideKey || directTexture),
+    bottom: getTextureContentByKey(bottomKey || sideKey || directTexture),
+    side: getTextureContentByKey(sideKey || directTexture),
+    front: getTextureContentByKey(frontKey || sideKey || directTexture),
+    back: getTextureContentByKey(sideKey || directTexture),
+    left: getTextureContentByKey(sideKey || directTexture),
+    right: getTextureContentByKey(sideKey || directTexture),
+    transparent: /(glass|ice|leaves|slime|honey|water|barrier|chain|lantern|door|trapdoor|pane|vine|sculk_sensor)/i.test(normalizedBlockName),
+  };
+
+  workshopTextureCache.set(normalizedBlockName, textureSet);
+  return textureSet;
+}
+
+function normalizeStructureNumberList(value) {
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const nums = value.slice(0, 3).map((item) => Number(item));
+  if (nums.some((item) => !Number.isFinite(item))) return null;
+  return nums.map((item) => Math.max(0, Math.trunc(item)));
+}
+
+function readStructurePaletteEntries(value) {
+  if (Array.isArray(value?.palette)) return value.palette;
+  if (Array.isArray(value?.palettes?.[0])) return value.palettes[0];
+  return [];
+}
+
+function extractWorkshopRenderModel(preview) {
+  if (!preview || typeof preview !== "object") return null;
+  const size = normalizeStructureNumberList(preview.size);
+  const blocksRaw = Array.isArray(preview.blocks) ? preview.blocks : [];
+  const paletteRaw = readStructurePaletteEntries(preview);
+  if (!size || blocksRaw.length === 0 || paletteRaw.length === 0) return null;
+
+  const palette = paletteRaw.map((entry, index) => {
+    const name =
+      typeof entry?.Name === "string"
+        ? entry.Name.trim()
+        : typeof entry?.name === "string"
+          ? entry.name.trim()
+          : "";
+    return {
+      index,
+      name: name || `palette:${index}`,
+      textures: buildWorkshopTextureSet(name),
+    };
+  });
+
+  let solidBlockCount = 0;
+  const blocks = [];
+  for (const rawBlock of blocksRaw) {
+    const stateIndex = Math.trunc(Number(rawBlock?.state));
+    const pos = normalizeStructureNumberList(rawBlock?.pos);
+    if (!Number.isFinite(stateIndex) || !pos) continue;
+    const paletteEntry = palette[stateIndex];
+    if (!paletteEntry || AIR_BLOCK_NAMES.has(paletteEntry.name)) continue;
+    solidBlockCount += 1;
+    if (blocks.length >= WORKSHOP_RENDER_BLOCK_LIMIT) continue;
+    blocks.push({
+      x: pos[0],
+      y: pos[1],
+      z: pos[2],
+      state: stateIndex,
+      name: paletteEntry.name,
+    });
+  }
+
+  return {
+    size,
+    palette,
+    paletteSize: palette.length,
+    totalBlockCount: blocksRaw.length,
+    solidBlockCount,
+    renderedBlockCount: blocks.length,
+    omittedBlockCount: Math.max(0, solidBlockCount - blocks.length),
+    entityCount: Array.isArray(preview.entities) ? preview.entities.length : 0,
+    blocks,
+  };
 }
 
 function sanitizeFeedbackAttachments(items, kind, draftId) {
@@ -529,76 +924,23 @@ async function listMods(branch) {
   if (cached) return cached;
 
   if (!isManagedBranch(normalizedBranch)) return [];
-  const branchDirs = getBranchDirectoryCandidates(normalizedBranch);
-  if (branchDirs.length === 0) return [];
-
   let mods = [];
-  const seenFiles = new Set();
-  for (const branchDir of branchDirs) {
-    try {
-      const entries = await fs.readdir(branchDir, { withFileTypes: true });
-      const files = entries
-        .filter((e) => e.isFile())
-        .map((e) => e.name)
-        .filter((name) => /\.(zip|jar)$/i.test(name))
-        .filter((name) => !seenFiles.has(name));
-
-      const stats = await Promise.all(
-        files.map(async (fileName) => {
-          const fullPath = path.join(branchDir, fileName);
-          const st = await fs.stat(fullPath);
-          seenFiles.add(fileName);
-          return {
-            fileName,
-            sizeBytes: st.size,
-            mtimeMs: st.mtimeMs,
-          };
-        }),
-      );
-
-      mods.push(
-        ...stats.map((item) => ({
-          ...item,
-          branch: normalizedBranch,
-          versionGuess: formatVersionGuess(item.fileName),
-          url: `/download/${encodeURIComponent(normalizedBranch)}/${encodeURIComponent(
-            item.fileName,
-          )}`,
-        })),
-      );
-    } catch {
-    }
-  }
-
   try {
     const ext = await readExternalModsConfig();
-    const extForBranch = ext.filter((m) => m.branch === normalizedBranch);
-    const used = new Set();
-
-    mods = mods.map((m) => {
-      const hit = extForBranch.find((x) => x.fileName === m.fileName);
-      if (!hit) return m;
-      used.add(`${hit.branch}::${hit.fileName}`);
-      return {
-        ...m,
-        externalLinks: hit.links,
-        description: hit.description || "",
-      };
-    });
-
-    const leftovers = extForBranch.filter((x) => !used.has(`${x.branch}::${x.fileName}`));
-    const externalOnly = leftovers.map((x) => ({
-      branch: normalizedBranch,
-      fileName: x.fileName,
-      sizeBytes: null,
-      mtimeMs: 0,
-      versionGuess: formatVersionGuess(x.fileName),
-      externalOnly: true,
-      externalLinks: x.links,
-      description: x.description || "",
-    }));
-    mods = [...mods, ...externalOnly];
+    mods = ext
+      .filter((item) => item.branch === normalizedBranch)
+      .map((item) => ({
+        branch: normalizedBranch,
+        fileName: item.fileName,
+        sizeBytes: null,
+        mtimeMs: Date.parse(item.updatedAt || "") || 0,
+        versionGuess: item.title || formatVersionGuess(item.fileName),
+        externalOnly: true,
+        externalLinks: item.links,
+        description: item.description || "",
+      }));
   } catch {
+    mods = [];
   }
 
   mods.sort((a, b) => {
@@ -756,8 +1098,10 @@ async function listGalleryImages(category) {
 const DATA_DIR = path.join(ROOT_DIR, "data");
 const FEEDBACK_JSON = path.join(DATA_DIR, "feedback.json");
 const USERS_JSON = path.join(DATA_DIR, "users.json");
+const WORKSHOP_JSON = path.join(DATA_DIR, "workshop.json");
 let feedbackWriteChain = Promise.resolve();
 let changelogWriteChain = Promise.resolve();
+let workshopWriteChain = Promise.resolve();
 
 const SESSION_COOKIE_NAME = "sid";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60_000;
@@ -1008,6 +1352,7 @@ async function buildPublicAuthUser(user) {
 function getUserProfileProjects(user) {
   const links = [
     { title: "返回官网", subtitle: "查看首页、下载和公告内容", url: "/", cta: "返回官网" },
+    { title: "创意工坊", subtitle: "浏览已审核通过的玩家作品，或登录后投稿", url: "/workshop.html", cta: "前往工坊" },
     { title: "提交反馈", subtitle: "遇到问题或建议时可前往反馈页提交", url: "/feedback.html", cta: "去反馈" },
   ];
   if (hasPermissionLevel(user, 3)) {
@@ -1694,6 +2039,78 @@ function enqueueChangelogWrite(task) {
   return changelogWriteChain;
 }
 
+function enqueueWorkshopWrite(task) {
+  workshopWriteChain = workshopWriteChain
+    .then(() => task())
+    .catch(() => {});
+  return workshopWriteChain;
+}
+
+async function readWorkshopItems() {
+  const cached = cache.get("workshop");
+  if (cached) return cached;
+
+  let data = null;
+  try {
+    const raw = await fs.readFile(WORKSHOP_JSON, "utf-8");
+    data = JSON.parse(raw);
+  } catch {
+    data = null;
+  }
+
+  const items = Array.isArray(data?.items)
+    ? data.items.map((item) => sanitizeWorkshopEntry(item)).filter(Boolean)
+    : [];
+  cache.set("workshop", items, 10_000);
+  return items;
+}
+
+async function writeWorkshopItems(items) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.writeFile(
+    WORKSHOP_JSON,
+    JSON.stringify({ version: 1, items }, null, 2),
+    "utf-8",
+  );
+  cache.set("workshop", items, 10_000);
+}
+
+function buildWorkshopItemPayload(entry, userMap) {
+  const author = userMap.get(entry.authorUsername) ?? null;
+  const categoryMeta = getWorkshopCategoryMeta(entry.category) ?? WORKSHOP_CATEGORY_META.other;
+  const nbtUrl = entry.files?.nbt?.url || "";
+  return {
+    id: entry.id,
+    title: entry.title,
+    category: categoryMeta.key,
+    categoryLabel: categoryMeta.label,
+    description: entry.description,
+    files: entry.files,
+    externalLinks: entry.externalLinks,
+    nbtViewerUrl: nbtUrl ? `/nbt-viewer.html?url=${encodeURIComponent(nbtUrl)}` : "",
+    status: entry.status,
+    reviewReason: entry.reviewReason || "",
+    reviewedBy: entry.reviewedBy || "",
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    reviewedAt: entry.reviewedAt,
+    publishedAt: entry.publishedAt,
+    author: {
+      username: entry.authorUsername,
+      displayName: author?.displayName || entry.authorDisplayName || entry.authorUsername,
+      profileUrl: author
+        ? buildProfileUrlForUser(author)
+        : `/profile.html?user=${encodeURIComponent(entry.authorUsername)}`,
+    },
+  };
+}
+
+async function buildWorkshopItemsPayload(items) {
+  const users = await readUsers();
+  const userMap = new Map(users.map((user) => [user.username, user]));
+  return items.map((item) => buildWorkshopItemPayload(item, userMap));
+}
+
 app.get("/api/announcements", async (_req, res) => {
   res.json({ announcements: await readAnnouncements() });
 });
@@ -1713,33 +2130,6 @@ app.get("/api/mods", async (req, res) => {
   res.json({ branch, mods: await listMods(branch) });
 });
 
-app.get("/download/:branch/:file", async (req, res) => {
-  const branch = normalizeBranchInput(String(req.params.branch ?? "main"));
-  const fileName = String(req.params.file ?? "");
-  if (!fileName) return res.status(400).send("Missing file");
-  const user = await getRequestUser(req);
-  if (!canAccessBranch(user, branch)) {
-    return res.status(403).send("Forbidden");
-  }
-
-  const filePath = await resolveBranchFilePath(branch, fileName);
-  if (!filePath) return res.status(404).send("Not found");
-
-  try {
-    const st = await fs.stat(filePath);
-    if (!st.isFile()) return res.status(404).send("Not found");
-    res.setHeader("Content-Length", String(st.size));
-    res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${encodeURIComponent(fileName)}"`,
-    );
-    createReadStream(filePath).pipe(res);
-  } catch {
-    res.status(404).send("Not found");
-  }
-});
-
 app.get("/api/gallery/categories", async (_req, res) => {
   res.json({ categories: await listGalleryCategories() });
 });
@@ -1755,6 +2145,183 @@ app.get("/api/walls", async (_req, res) => {
 
 app.get("/api/changelog", async (_req, res) => {
   res.json({ ok: true, items: await readChangelog() });
+});
+
+app.get("/api/workshop/meta", async (_req, res) => {
+  res.json({ ok: true, categories: listWorkshopCategories() });
+});
+
+app.get("/api/workshop", async (req, res) => {
+  const rawCategory = typeof req.query.category === "string" ? req.query.category : "";
+  const category = rawCategory ? normalizeWorkshopCategory(rawCategory) : "";
+  if (rawCategory && !category) {
+    return res.status(400).json({ ok: false, error: "创意工坊分类无效" });
+  }
+
+  const items = (await readWorkshopItems())
+    .filter((item) => item.status === "approved")
+    .filter((item) => !category || item.category === category)
+    .sort((left, right) => {
+      return new Date(right.publishedAt || right.updatedAt).getTime() - new Date(left.publishedAt || left.updatedAt).getTime();
+    });
+  res.json({
+    ok: true,
+    categories: listWorkshopCategories(),
+    items: await buildWorkshopItemsPayload(items),
+  });
+});
+
+app.get("/api/workshop/mine", async (req, res) => {
+  const user = await requirePermissionLevel(req, res, 1);
+  if (!user) return;
+
+  const items = (await readWorkshopItems())
+    .filter((item) => item.authorUsername === user.username)
+    .sort((left, right) => {
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    });
+  res.json({ ok: true, items: await buildWorkshopItemsPayload(items) });
+});
+
+app.get("/api/workshop/nbt-preview", async (req, res) => {
+  const fileUrl = typeof req.query.url === "string" ? req.query.url.trim() : "";
+  if (!fileUrl || !/\.nbt$/i.test(fileUrl)) {
+    return res.status(400).json({ ok: false, error: "NBT 文件地址无效" });
+  }
+
+  const filePath = fileUrlToLocalPath(fileUrl);
+  if (!filePath) {
+    return res.status(400).json({ ok: false, error: "NBT 文件路径无效" });
+  }
+
+  try {
+    const buffer = await fs.readFile(filePath);
+    const { parsed, type } = await nbt.parse(buffer);
+    const rawSimplified = nbt.simplify(parsed);
+    const simplified = sanitizeNbtPreviewValue(rawSimplified);
+    res.json({
+      ok: true,
+      type,
+      fileUrl,
+      fileName: path.basename(filePath),
+      preview: simplified,
+      renderModel: extractWorkshopRenderModel(rawSimplified),
+    });
+  } catch {
+    return res.status(400).json({ ok: false, error: "NBT 解析失败，可能不是有效的结构文件" });
+  }
+});
+
+app.post(
+  "/api/workshop/upload",
+  express.raw({ type: "application/octet-stream", limit: "30mb" }),
+  async (req, res) => {
+    const user = await requirePermissionLevel(req, res, 1);
+    if (!user) return;
+
+    const kind =
+      req.query.kind === "nbt"
+        ? "nbt"
+        : "";
+    const draftId = String(req.query.draftId ?? "").trim();
+    if (!kind || !isValidFeedbackDraftId(draftId)) {
+      return res.status(400).json({ ok: false, error: "无效上传参数" });
+    }
+
+    const headerName = req.get("x-file-name") ?? "";
+    const fileName = decodeURIComponent(String(headerName)).trim();
+    if (!isValidWorkshopFileName(kind, fileName)) {
+      return res.status(400).json({ ok: false, error: "创意工坊现在只支持上传 .nbt 文件" });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ ok: false, error: "上传文件为空" });
+    }
+    if (req.body.length > 30 * 1024 * 1024) {
+      return res.status(400).json({ ok: false, error: "单个创意工坊文件不能超过 30MB" });
+    }
+
+    const destDir = safeJoin(WORKSHOP_UPLOADS_DIR, draftId, kind);
+    if (!destDir) {
+      return res.status(400).json({ ok: false, error: "上传目录无效" });
+    }
+    await fs.mkdir(destDir, { recursive: true });
+
+    const destPath = safeJoin(destDir, fileName);
+    if (!destPath) {
+      return res.status(400).json({ ok: false, error: "文件路径无效" });
+    }
+
+    await fs.writeFile(destPath, req.body);
+    res.json({
+      ok: true,
+      attachment: {
+        kind,
+        name: fileName,
+        size: req.body.length,
+        url: `/uploads/workshop/${encodeURIComponent(draftId)}/${kind}/${encodeURIComponent(fileName)}`,
+      },
+    });
+  },
+);
+
+app.post("/api/workshop", async (req, res) => {
+  const user = await requirePermissionLevel(req, res, 1);
+  if (!user) return;
+
+  const body = req.body ?? {};
+  const draftId = typeof body.draftId === "string" ? body.draftId.trim() : "";
+  const category = normalizeWorkshopCategory(body.category);
+  const title = sanitizeWorkshopText(body.title, WORKSHOP_TITLE_MAX_LENGTH);
+  const description = sanitizeWorkshopText(body.description, WORKSHOP_DESCRIPTION_MAX_LENGTH);
+  if (!isValidFeedbackDraftId(draftId)) {
+    return res.status(400).json({ ok: false, error: "投稿编号无效，请重新选择文件后再提交" });
+  }
+  if (!category) {
+    return res.status(400).json({ ok: false, error: "请选择创意工坊分类" });
+  }
+  if (!title || !description) {
+    return res.status(400).json({ ok: false, error: "请填写作品名称和描述介绍" });
+  }
+
+  const files = sanitizeWorkshopFiles(body.files, category, draftId);
+  if (!files) {
+    return res.status(400).json({ ok: false, error: "当前投稿必须上传 NBT 文件" });
+  }
+  const externalLinks = sanitizeWorkshopExternalLinks(body.externalLinks);
+  if (Array.isArray(body.externalLinks) && externalLinks.length !== body.externalLinks.filter(Boolean).length) {
+    return res.status(400).json({ ok: false, error: "外链格式无效，请检查链接地址" });
+  }
+
+  const now = new Date().toISOString();
+  const entry = sanitizeWorkshopEntry({
+    id: randomId(),
+    draftId,
+    title,
+    category,
+    description,
+    files,
+    externalLinks,
+    authorUsername: user.username,
+    authorDisplayName: user.displayName || user.username,
+    status: "pending",
+    reviewReason: "",
+    reviewedBy: "",
+    createdAt: now,
+    updatedAt: now,
+    reviewedAt: null,
+    publishedAt: null,
+  });
+  if (!entry) {
+    return res.status(400).json({ ok: false, error: "投稿数据校验失败" });
+  }
+
+  await enqueueWorkshopWrite(async () => {
+    const current = await readWorkshopItems();
+    const next = [entry, ...current].slice(0, 2000);
+    await writeWorkshopItems(next);
+  });
+
+  res.json({ ok: true, item: (await buildWorkshopItemsPayload([entry]))[0] });
 });
 
 app.get("/api/developers/:slug", async (req, res) => {
@@ -2398,6 +2965,79 @@ app.delete("/api/admin/changelog/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/api/admin/workshop", async (req, res) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const rawStatus = typeof req.query.status === "string" ? req.query.status.trim() : "";
+  const status = rawStatus === "approved" || rawStatus === "rejected" || rawStatus === "pending"
+    ? rawStatus
+    : rawStatus === "all" || !rawStatus
+      ? ""
+      : null;
+  if (status === null) {
+    return res.status(400).json({ ok: false, error: "审核状态无效" });
+  }
+
+  const items = (await readWorkshopItems())
+    .filter((item) => !status || item.status === status)
+    .sort((left, right) => {
+      const order = { pending: 0, rejected: 1, approved: 2 };
+      const statusDiff = (order[left.status] ?? 9) - (order[right.status] ?? 9);
+      if (statusDiff !== 0) return statusDiff;
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    });
+  res.json({ ok: true, items: await buildWorkshopItemsPayload(items) });
+});
+
+app.patch("/api/admin/workshop/:id/review", async (req, res) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const id = String(req.params.id ?? "").trim();
+  const action = typeof req.body?.action === "string" ? req.body.action.trim() : "";
+  const rejectReason = sanitizeWorkshopText(
+    req.body?.reason,
+    WORKSHOP_REVIEW_REASON_MAX_LENGTH,
+  );
+  if (!id) {
+    return res.status(400).json({ ok: false, error: "投稿编号无效" });
+  }
+  if (action !== "approve" && action !== "reject") {
+    return res.status(400).json({ ok: false, error: "审核操作无效" });
+  }
+  if (action === "reject" && !rejectReason) {
+    return res.status(400).json({ ok: false, error: "打回时必须填写原因" });
+  }
+
+  let updated = null;
+  await enqueueWorkshopWrite(async () => {
+    const current = await readWorkshopItems();
+    const now = new Date().toISOString();
+    const next = current.map((item) => {
+      if (item.id !== id) return item;
+      updated = sanitizeWorkshopEntry({
+        ...item,
+        status: action === "approve" ? "approved" : "rejected",
+        reviewReason: action === "reject" ? rejectReason : "",
+        reviewedBy: admin.displayName || admin.username,
+        reviewedAt: now,
+        publishedAt: action === "approve" ? now : null,
+        updatedAt: now,
+      });
+      return updated || item;
+    });
+    if (!updated) return;
+    await writeWorkshopItems(next);
+  });
+
+  if (!updated) {
+    return res.status(404).json({ ok: false, error: "投稿不存在" });
+  }
+
+  res.json({ ok: true, item: (await buildWorkshopItemsPayload([updated]))[0] });
+});
+
 app.patch("/api/admin/feedback/:id", async (req, res) => {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
@@ -2437,12 +3077,13 @@ app.post("/api/admin/mods/external", async (req, res) => {
     return res.status(400).json({ ok: false, error: "Invalid branch" });
   }
 
-  const fileName = typeof body.fileName === "string" ? body.fileName.trim() : "";
-  if (!isValidModFileName(fileName)) {
-    return res.status(400).json({ ok: false, error: "Invalid fileName" });
+  const fileName = sanitizeExternalModKey(body.fileName);
+  if (!isValidExternalModKey(fileName)) {
+    return res.status(400).json({ ok: false, error: "Invalid item key" });
   }
 
-  const description = typeof body.description === "string" ? body.description.trim() : "";
+  const title = sanitizeExternalModTitle(body.title, formatVersionGuess(fileName));
+  const description = sanitizeExternalModDescription(body.description);
   const rawLinks = Array.isArray(body.links)
     ? body.links
     : [
@@ -2455,59 +3096,28 @@ app.post("/api/admin/mods/external", async (req, res) => {
   if (Array.isArray(body.links) && rawLinks.length > 0 && links.length !== rawLinks.filter(Boolean).length) {
     return res.status(400).json({ ok: false, error: "Invalid external links" });
   }
+  if (links.length === 0) {
+    return res.status(400).json({ ok: false, error: "At least one external link is required" });
+  }
 
   await enqueueExternalModsWrite(async () => {
     const current = await readExternalModsConfigUncached();
     const kept = current.filter((x) => !(x.branch === branch && x.fileName === fileName));
-    const shouldKeep = Boolean(links.length > 0 || description);
-    const next = shouldKeep
-      ? [...kept, { branch, fileName, description, links }]
-      : kept;
+    const next = [...kept, {
+      branch,
+      fileName,
+      title,
+      description,
+      links,
+      updatedAt: new Date().toISOString(),
+    }];
     await writeExternalModsConfig(next);
   });
 
   res.json({ ok: true });
 });
 
-app.post(
-  "/api/admin/mods/upload",
-  express.raw({ type: "application/octet-stream", limit: "400mb" }),
-  async (req, res) => {
-    const admin = await requireAdmin(req, res);
-    if (!admin) return;
-
-    const branch = normalizeBranchInput(String(req.query.branch ?? ""));
-    if (!isManagedBranch(branch)) {
-      return res.status(400).json({ ok: false, error: "Invalid branch" });
-    }
-
-    const headerName = req.get("x-file-name") ?? "";
-    const fileName = decodeURIComponent(String(headerName)).trim();
-    if (!isValidModFileName(fileName)) {
-      return res.status(400).json({ ok: false, error: "Invalid fileName" });
-    }
-
-    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-      return res.status(400).json({ ok: false, error: "Empty file" });
-    }
-
-    const branchDir = getPrimaryBranchDirectory(branch);
-    if (!branchDir) return res.status(400).json({ ok: false, error: "Invalid branch" });
-    await fs.mkdir(branchDir, { recursive: true });
-
-    const destPath = safeJoin(branchDir, fileName);
-    if (!destPath) return res.status(400).json({ ok: false, error: "Invalid fileName" });
-
-    await fs.writeFile(destPath, req.body);
-
-    cache.delete("branches");
-    cache.delete(`mods:${branch}`);
-
-    res.json({ ok: true });
-  },
-);
-
-app.delete("/api/admin/mods", async (req, res) => {
+app.delete("/api/admin/mods/external", async (req, res) => {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
 
@@ -2520,30 +3130,25 @@ app.delete("/api/admin/mods", async (req, res) => {
 
   const fileName =
     typeof req.query.fileName === "string" ? req.query.fileName.trim() : "";
-  if (!isValidModFileName(fileName)) {
-    return res.status(400).json({ ok: false, error: "Invalid fileName" });
+  if (!isValidExternalModKey(fileName)) {
+    return res.status(400).json({ ok: false, error: "Invalid item key" });
   }
 
-  const filePath = await resolveBranchFilePath(branch, fileName);
-  if (!filePath) return res.status(404).json({ ok: false, error: "Not found" });
-
-  try {
-    const st = await fs.stat(filePath);
-    if (!st.isFile()) return res.status(404).json({ ok: false, error: "Not found" });
-  } catch {
-    return res.status(404).json({ ok: false, error: "Not found" });
-  }
-
-  await fs.unlink(filePath);
-
+  let removed = false;
   await enqueueExternalModsWrite(async () => {
     const current = await readExternalModsConfigUncached();
-    const next = current.filter((x) => !(x.branch === branch && x.fileName === fileName));
+    const next = current.filter((x) => {
+      const matched = x.branch === branch && x.fileName === fileName;
+      if (matched) removed = true;
+      return !matched;
+    });
+    if (!removed) return;
     await writeExternalModsConfig(next);
   });
 
-  cache.delete("branches");
-  cache.delete(`mods:${branch}`);
+  if (!removed) {
+    return res.status(404).json({ ok: false, error: "Not found" });
+  }
 
   res.json({ ok: true });
 });
@@ -2556,6 +3161,8 @@ app.get("/admin.html", async (req, res) => {
   return res.sendFile(path.join(PUBLIC_DIR, "admin.html"));
 });
 
+app.use(`/vendor/minecraft-assets/${MINECRAFT_ASSETS_VERSION}`, express.static(MINECRAFT_ASSETS_DIR));
+app.use("/vendor/three", express.static(THREE_BUILD_DIR));
 app.use(express.static(PUBLIC_DIR, { extensions: ["html"] }));
 
 app.get("/healthz", (_req, res) => {

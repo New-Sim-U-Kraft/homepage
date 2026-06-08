@@ -11,6 +11,7 @@ const state = {
   modsManager: null,
   usersManager: null,
   changelogManager: null,
+  workshopManager: null,
 };
 
 const BRANCH_LABELS = {
@@ -280,10 +281,12 @@ function syncPermissionView(user = state.me) {
   const accounts = el("accounts-section");
   const mods = el("mods-section");
   const changelog = el("changelog-section");
+  const workshop = el("workshop-section");
   if (preview) preview.hidden = !canAccessPreview(user);
   if (accounts) accounts.hidden = !canManageSite(user);
   if (mods) mods.hidden = !canManageSite(user);
   if (changelog) changelog.hidden = !canManageSite(user);
+  if (workshop) workshop.hidden = !canManageSite(user);
 }
 
 function setView(state) {
@@ -488,15 +491,13 @@ function setupModsManager() {
   const branchSel = el("mods-branch");
   const btnRefresh = el("mods-refresh");
   const status = el("mods-status");
-  const dropzone = el("mods-dropzone");
-  const fileInput = el("mods-file");
-  const picked = el("mods-picked");
   const listEl = el("mods-list");
   const selectedEl = el("mods-selected");
+  const keyInput = el("mods-key");
+  const titleInput = el("mods-title");
   const linksEl = el("mods-links");
   const btnAddLink = el("mods-add-link");
   const descInput = el("mods-description");
-  const btnUpload = el("mods-upload");
   const btnSave = el("mods-save");
   const btnClear = el("mods-clear");
 
@@ -504,15 +505,13 @@ function setupModsManager() {
     !branchSel ||
     !btnRefresh ||
     !status ||
-    !dropzone ||
-    !fileInput ||
-    !picked ||
     !listEl ||
     !selectedEl ||
+    !keyInput ||
+    !titleInput ||
     !linksEl ||
     !btnAddLink ||
     !descInput ||
-    !btnUpload ||
     !btnSave ||
     !btnClear
   ) {
@@ -521,7 +520,6 @@ function setupModsManager() {
 
   const state = {
     branch: "main",
-    pickedFile: null,
     selectedFileName: "",
     externalMap: new Map(),
     mods: [],
@@ -530,11 +528,6 @@ function setupModsManager() {
   function setStatus(text, ok) {
     status.textContent = text || "";
     status.style.color = ok ? "rgba(34,197,94,0.9)" : "rgba(245,158,11,0.9)";
-  }
-
-  function pickFile(file) {
-    state.pickedFile = file || null;
-    picked.textContent = state.pickedFile ? `已选择：${state.pickedFile.name}` : "未选择文件";
   }
 
   function normalizeLinks(meta) {
@@ -552,6 +545,11 @@ function setupModsManager() {
     }
     const fallback = typeof meta?.externalUrl === "string" ? meta.externalUrl.trim() : "";
     return fallback ? [{ label: "站外下载 1", url: fallback }] : [];
+  }
+
+  function normalizeTitle(meta) {
+    const title = typeof meta?.title === "string" ? meta.title.trim() : "";
+    return title || String(meta?.versionGuess || meta?.fileName || "");
   }
 
   function createLinkRow(link = {}) {
@@ -615,10 +613,25 @@ function setupModsManager() {
     );
   }
 
+  function resetEditor() {
+    state.selectedFileName = "";
+    selectedEl.textContent = "当前为新建模式";
+    keyInput.value = "";
+    titleInput.value = "";
+    descInput.value = "";
+    renderLinkRows([]);
+  }
+
   function selectMod(fileName) {
     state.selectedFileName = fileName;
-    selectedEl.textContent = fileName ? `当前选择：${fileName}` : "未选择条目";
+    if (!fileName) {
+      resetEditor();
+      return;
+    }
     const meta = state.externalMap.get(fileName) || null;
+    selectedEl.textContent = fileName ? `当前选择：${normalizeTitle(meta) || fileName}` : "当前为新建模式";
+    keyInput.value = fileName;
+    titleInput.value = normalizeTitle(meta);
     descInput.value = meta?.description || "";
     renderLinkRows(normalizeLinks(meta));
   }
@@ -626,14 +639,14 @@ function setupModsManager() {
   function renderMods() {
     listEl.innerHTML = "";
     if (!Array.isArray(state.mods) || state.mods.length === 0) {
-      listEl.innerHTML = `<div class="muted">暂无 mod（可拖拽上传 jar/zip）</div>`;
+      listEl.innerHTML = `<div class="muted">当前分支暂无站外下载条目</div>`;
       return;
     }
 
     for (const mod of state.mods) {
       const fileName = String(mod.fileName || "");
-      const version = escapeHtml(mod.versionGuess || fileName || "—");
-      const size = formatBytes(mod.sizeBytes);
+      const version = escapeHtml(normalizeTitle(mod) || fileName || "—");
+      const keyText = escapeHtml(fileName || "—");
       const date = formatDate(mod.mtimeMs);
       const description = escapeHtml(mod.description || "");
       const links = normalizeLinks(mod);
@@ -643,7 +656,7 @@ function setupModsManager() {
       row.innerHTML =
         `<div class="history__left">` +
         `<div class="history__name">${version}</div>` +
-        `<div class="history__meta"><span>📦 ${size}</span><span>📅 ${date}</span></div>` +
+        `<div class="history__meta"><span>🔑 ${keyText}</span><span>🌐 ${links.length} 个外链</span><span>📅 ${date}</span></div>` +
         (description ? `<div class="hint" style="margin-top:6px;">${description}</div>` : "") +
         `</div>` +
         `<div class="button-row">` +
@@ -658,15 +671,15 @@ function setupModsManager() {
       });
 
       row.querySelector('button[data-delete="1"]').addEventListener("click", async () => {
-        const ok = window.confirm(`确认删除 ${fileName} 吗？这会同时移除对应的站外链接配置。`);
+        const ok = window.confirm(`确认删除 ${normalizeTitle(mod) || fileName} 吗？这会移除该条目的全部站外下载链接。`);
         if (!ok) return;
         setStatus(`删除中：${fileName}`, true);
         try {
           await deleteJson(
-            `/api/admin/mods?branch=${encodeURIComponent(state.branch)}&fileName=${encodeURIComponent(fileName)}`,
+            `/api/admin/mods/external?branch=${encodeURIComponent(state.branch)}&fileName=${encodeURIComponent(fileName)}`,
           );
           if (state.selectedFileName === fileName) {
-            selectMod("");
+            resetEditor();
           }
           await refreshAll();
           setStatus(`已删除：${fileName}`, true);
@@ -712,7 +725,7 @@ function setupModsManager() {
       await loadBranches(preferredBranch);
       await Promise.all([loadExternalMap(), loadMods()]);
       if (state.selectedFileName && !state.mods.some((m) => m.fileName === state.selectedFileName)) {
-        selectMod("");
+        resetEditor();
       }
       renderMods();
       setStatus(`已加载 ${state.mods.length} 个条目`, true);
@@ -732,76 +745,34 @@ function setupModsManager() {
     createLinkRow({ label: "", url: "" });
   });
 
-  fileInput.addEventListener("change", () => {
-    const f = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
-    pickFile(f);
-  });
-
-  dropzone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    dropzone.classList.add("is-over");
-  });
-  dropzone.addEventListener("dragleave", () => {
-    dropzone.classList.remove("is-over");
-  });
-  dropzone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    dropzone.classList.remove("is-over");
-    const dt = e.dataTransfer;
-    const f = dt && dt.files && dt.files[0] ? dt.files[0] : null;
-    if (f) pickFile(f);
-  });
-
-  btnUpload.addEventListener("click", async () => {
-    if (!state.pickedFile) {
-      setStatus("请先选择文件", false);
-      return;
-    }
-    const name = state.pickedFile.name || "";
-    if (!/\.(zip|jar)$/i.test(name)) {
-      setStatus("只允许上传 .jar 或 .zip", false);
-      return;
-    }
-    btnUpload.disabled = true;
-    setStatus("上传中…", true);
-    try {
-      const buf = await state.pickedFile.arrayBuffer();
-      await fetchJson(`/api/admin/mods/upload?branch=${encodeURIComponent(state.branch)}`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/octet-stream",
-          "x-file-name": encodeURIComponent(name),
-        },
-        body: buf,
-      });
-      setStatus(`上传成功：${name}`, true);
-      pickFile(null);
-      await refreshAll();
-      selectMod(name);
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err), false);
-    } finally {
-      btnUpload.disabled = false;
-    }
-  });
-
   btnSave.addEventListener("click", async () => {
-    if (!state.selectedFileName) {
-      setStatus("请先在列表里点“编辑”选中一个条目", false);
+    const key = keyInput.value.trim();
+    const title = titleInput.value.trim();
+    if (!key) {
+      setStatus("请先填写条目标识", false);
+      return;
+    }
+    if (!title) {
+      setStatus("请先填写展示名称", false);
+      return;
+    }
+    const links = collectLinks();
+    if (links.length === 0) {
+      setStatus("请至少添加一个站外下载链接", false);
       return;
     }
     btnSave.disabled = true;
     setStatus("保存中…", true);
     try {
-      const links = collectLinks();
       await postJson("/api/admin/mods/external", {
         branch: state.branch,
-        fileName: state.selectedFileName,
+        fileName: key,
+        title,
         links,
         description: descInput.value.trim(),
       });
       await refreshAll();
-      selectMod(state.selectedFileName);
+      selectMod(key);
       setStatus("保存成功", true);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err), false);
@@ -810,34 +781,179 @@ function setupModsManager() {
     }
   });
 
-  btnClear.addEventListener("click", async () => {
-    if (!state.selectedFileName) {
-      setStatus("请先在列表里点“编辑”选中一个条目", false);
-      return;
-    }
-    descInput.value = "";
-    renderLinkRows([]);
-    btnClear.disabled = true;
-    setStatus("清空中…", true);
-    try {
-      await postJson("/api/admin/mods/external", {
-        branch: state.branch,
-        fileName: state.selectedFileName,
-        links: [],
-        description: "",
-      });
-      await refreshAll();
-      selectMod(state.selectedFileName);
-      setStatus("已清空", true);
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : String(err), false);
-    } finally {
-      btnClear.disabled = false;
-    }
+  btnClear.addEventListener("click", () => {
+    resetEditor();
+    setStatus("已切换到新建模式", true);
   });
 
-  renderLinkRows([]);
+  resetEditor();
   return { refreshAll };
+}
+
+function setupWorkshopManager() {
+  const filterSel = el("workshop-status-filter");
+  const btnRefresh = el("workshop-refresh");
+  const statusEl = el("workshop-status");
+  const listEl = el("workshop-list");
+  if (
+    !(filterSel instanceof HTMLSelectElement) ||
+    !(btnRefresh instanceof HTMLButtonElement) ||
+    !(statusEl instanceof HTMLElement) ||
+    !(listEl instanceof HTMLElement)
+  ) {
+    return null;
+  }
+
+  const localState = {
+    filter: filterSel.value || "pending",
+  };
+
+  function setStatus(text, ok) {
+    statusEl.textContent = text || "";
+    statusEl.style.color = ok ? "rgba(34,197,94,0.9)" : "rgba(245,158,11,0.9)";
+  }
+
+  function renderStatusBadge(status) {
+    if (status === "approved") return `<span class="badge badge--ok">已通过</span>`;
+    if (status === "rejected") return `<span class="badge badge--danger">已打回</span>`;
+    return `<span class="badge badge--warn">待审核</span>`;
+  }
+
+  function renderFileButtons(files) {
+    const nbtFile = files?.nbt || null;
+    if (!nbtFile?.url) return `<div class="hint">暂无 NBT 文件</div>`;
+    return [
+      `<a class="btn btn--ghost" href="${escapeHtml(nbtFile.url)}" target="_blank" rel="noreferrer">NBT${nbtFile.size ? ` · ${escapeHtml(formatBytes(nbtFile.size))}` : ""}</a>`,
+    ].join("");
+  }
+
+  function renderNbtViewerButton(item) {
+    return item?.nbtViewerUrl
+      ? `<a class="btn btn--ghost" href="${escapeHtml(item.nbtViewerUrl)}" target="_blank" rel="noreferrer">NBT Viewer 预览</a>`
+      : "";
+  }
+
+  function renderExternalLinks(links) {
+    if (!Array.isArray(links) || links.length === 0) {
+      return `<div class="hint">未填写附加外链</div>`;
+    }
+    return links
+      .map((link, index) => {
+        const label = (typeof link?.label === "string" ? link.label.trim() : "") || `外链 ${index + 1}`;
+        const url = typeof link?.url === "string" ? link.url.trim() : "";
+        if (!url) return "";
+        return `<a class="btn btn--ghost" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>`;
+      })
+      .join("");
+  }
+
+  function renderItems(items) {
+    listEl.innerHTML = "";
+    if (!Array.isArray(items) || items.length === 0) {
+      listEl.innerHTML =
+        `<div class="history__item"><div class="history__left"><div class="history__name">当前筛选下暂无创意工坊投稿</div></div></div>`;
+      return;
+    }
+
+    for (const item of items) {
+      const row = document.createElement("div");
+      row.className = "history__item history__item--stack";
+      const reasonHtml = item.reviewReason
+        ? `<div class="workshop-review-note">打回原因：${escapeHtml(item.reviewReason)}</div>`
+        : "";
+      row.innerHTML =
+        `<div class="history__left">` +
+        `<div class="button-row" style="justify-content:space-between;align-items:flex-start;">` +
+        `<div class="history__name">${escapeHtml(item.title || "未命名作品")}</div>` +
+        `${renderStatusBadge(item.status)}` +
+        `</div>` +
+        `<div class="history__meta">` +
+        `<span>分类：${escapeHtml(item.categoryLabel || "其他")}</span>` +
+        `<span>作者：${escapeHtml(item.author?.displayName || item.author?.username || "未知玩家")}</span>` +
+        `<span>提交时间：${escapeHtml(formatTime(item.createdAt))}</span>` +
+        `<span>最后更新：${escapeHtml(formatTime(item.updatedAt))}</span>` +
+        `</div>` +
+        `<div class="hint" style="margin-top:8px;">${escapeHtml(item.description || "暂无描述")}</div>` +
+        `${reasonHtml}` +
+        `</div>` +
+        `<div class="workshop-inline-group"><div class="workshop-card__label">NBT 文件</div><div class="button-row">${renderFileButtons(item.files)}${renderNbtViewerButton(item)}</div></div>` +
+        `<div class="workshop-inline-group"><div class="workshop-card__label">附加外链</div><div class="button-row">${renderExternalLinks(item.externalLinks)}</div></div>` +
+        `<div class="button-row">`;
+
+      if (item.status === "pending") {
+        row.innerHTML +=
+          `<button class="btn btn--primary" type="button" data-approve="1">通过</button>` +
+          `<button class="btn btn--ghost" type="button" data-reject="1">打回</button>`;
+      }
+
+      row.innerHTML += `</div>`;
+
+      const approveButton = row.querySelector('[data-approve="1"]');
+      if (approveButton instanceof HTMLButtonElement) {
+        approveButton.addEventListener("click", async () => {
+          approveButton.disabled = true;
+          setStatus(`审核通过中：${item.title || item.id}`, true);
+          try {
+            await patchJson(`/api/admin/workshop/${encodeURIComponent(item.id)}/review`, {
+              action: "approve",
+            });
+            await refresh();
+            setStatus(`已通过：${item.title || item.id}`, true);
+          } catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error), false);
+          } finally {
+            approveButton.disabled = false;
+          }
+        });
+      }
+
+      const rejectButton = row.querySelector('[data-reject="1"]');
+      if (rejectButton instanceof HTMLButtonElement) {
+        rejectButton.addEventListener("click", async () => {
+          const reason = window.prompt("请输入打回原因");
+          if (reason === null) return;
+          if (!reason.trim()) {
+            setStatus("打回时必须填写原因", false);
+            return;
+          }
+          rejectButton.disabled = true;
+          setStatus(`打回中：${item.title || item.id}`, true);
+          try {
+            await patchJson(`/api/admin/workshop/${encodeURIComponent(item.id)}/review`, {
+              action: "reject",
+              reason: reason.trim(),
+            });
+            await refresh();
+            setStatus(`已打回：${item.title || item.id}`, true);
+          } catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error), false);
+          } finally {
+            rejectButton.disabled = false;
+          }
+        });
+      }
+
+      listEl.appendChild(row);
+    }
+  }
+
+  async function refresh() {
+    localState.filter = filterSel.value || "pending";
+    setStatus("加载中…", true);
+    try {
+      const data = await fetchJson(`/api/admin/workshop?status=${encodeURIComponent(localState.filter)}`);
+      const items = Array.isArray(data.items) ? data.items : [];
+      renderItems(items);
+      setStatus(`已加载 ${items.length} 条投稿`, true);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error), false);
+    }
+  }
+
+  filterSel.addEventListener("change", refresh);
+  btnRefresh.addEventListener("click", refresh);
+
+  return { refresh };
 }
 
 function setupChangelogManager() {
@@ -956,12 +1072,16 @@ async function boot() {
     await reload();
     if (!state.usersManager) state.usersManager = setupUsersManager();
     if (!state.modsManager) state.modsManager = setupModsManager();
+    if (!state.workshopManager) state.workshopManager = setupWorkshopManager();
     if (!state.changelogManager) state.changelogManager = setupChangelogManager();
     if (canManageSite(me) && state.usersManager) {
       await state.usersManager.refresh();
     }
     if (canManageSite(me) && state.modsManager) {
       await state.modsManager.refreshAll();
+    }
+    if (canManageSite(me) && state.workshopManager) {
+      await state.workshopManager.refresh();
     }
     if (canManageSite(me) && state.changelogManager) {
       await state.changelogManager.refresh();

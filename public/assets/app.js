@@ -15,7 +15,7 @@ function formatBytes(bytes) {
 }
 
 function formatDate(ms) {
-  if (!Number.isFinite(ms)) return "—";
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
   const d = new Date(ms);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -90,22 +90,10 @@ function normalizeExternalLinks(mod) {
 }
 
 function normalizeDownloadLinks(mod) {
-  const links = [];
-  const localUrl = typeof mod?.url === "string" ? mod.url : "";
-  if (localUrl && !mod?.externalOnly) {
-    links.push({
-      label: "站内下载",
-      url: localUrl,
-      external: false,
-    });
-  }
-  for (const item of normalizeExternalLinks(mod)) {
-    links.push({
+  return normalizeExternalLinks(mod).map((item) => ({
       ...item,
       external: true,
-    });
-  }
-  return links;
+    }));
 }
 
 function renderDownloadButtons(mod, primaryClassName) {
@@ -116,7 +104,7 @@ function renderDownloadButtons(mod, primaryClassName) {
     links
       .map(
         (link, index) =>
-          `<a class="btn ${escapeHtml(index === 0 ? primaryClassName : "btn--ghost")}" href="${escapeHtml(link.url)}"${link.external ? ` target="_blank" rel="noreferrer"` : ` data-no-transition="1"`}>${link.external ? "🌐" : "⬇"} ${escapeHtml(link.label)}</a>`,
+            `<a class="btn ${escapeHtml(index === 0 ? primaryClassName : "btn--ghost")}" href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">🌐 ${escapeHtml(link.label)}</a>`,
       )
       .join("") +
     `</div>`
@@ -240,18 +228,19 @@ function renderLatest(mod) {
   if (!mod) {
     latest.innerHTML =
       `<div class="dl__title">暂无可下载版本</div>` +
-      `<div class="dl__desc">把 .jar 或 .zip 放入 public/uploads/mods（或 public/uploads/mods/&lt;分支&gt;）即可显示。</div>`;
+      `<div class="dl__desc">当前分支暂未配置站外下载链接，请稍后查看。</div>`;
     return;
   }
 
   const title = escapeHtml(mod.versionGuess || mod.fileName || "—");
-  const desc = escapeHtml(mod.description || "名称、大小与更新时间来自服务器文件信息，可直接下载可用版本。");
+  const desc = escapeHtml(mod.description || "该版本仅提供站外下载链接，由后台统一维护。");
   const btns = renderDownloadButtons(mod, "btn--primary");
+  const links = normalizeExternalLinks(mod);
   latest.innerHTML =
     `<div class="dl__title">${title}</div>` +
     `<div class="dl__desc">${desc}</div>` +
     `<div class="dl__meta">` +
-    `<span>📦 ${formatBytes(mod.sizeBytes)}</span>` +
+    `<span>🌐 ${links.length} 个站外链接</span>` +
     `<span>📅 ${formatDate(mod.mtimeMs)}</span>` +
     `</div>` +
     btns;
@@ -263,13 +252,14 @@ function renderHistory(list) {
   history.innerHTML = "";
   for (const mod of list) {
     const title = escapeHtml(mod.versionGuess || mod.fileName || "—");
+    const links = normalizeExternalLinks(mod);
     const btns = renderDownloadButtons(mod, "btn--ghost");
     const div = document.createElement("div");
     div.className = "history__item";
     div.innerHTML =
       `<div class="history__left">` +
       `<div class="history__name">${title}</div>` +
-      `<div class="history__meta"><span>📦 ${formatBytes(mod.sizeBytes)}</span><span>📅 ${formatDate(mod.mtimeMs)}</span></div>` +
+      `<div class="history__meta"><span>🌐 ${links.length} 个站外链接</span><span>📅 ${formatDate(mod.mtimeMs)}</span></div>` +
       `</div>` +
       btns;
     history.appendChild(div);
@@ -385,7 +375,7 @@ async function loadBranchesAndMods() {
 
     if (latest) {
       latestVersion.textContent = latest.versionGuess;
-      latestSize.textContent = formatBytes(latest.sizeBytes);
+      latestSize.textContent = `${normalizeExternalLinks(latest).length} 个外链`;
       latestDate.textContent = formatDate(latest.mtimeMs);
     } else {
       latestVersion.textContent = "—";

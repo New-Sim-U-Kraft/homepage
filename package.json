@@ -8,6 +8,9 @@
     "dev": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "minecraft-assets": "^1.17.0",
+    "prismarine-nbt": "^2.8.0",
+    "three": "^0.184.0"
   }
 }

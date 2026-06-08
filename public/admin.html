@@ -19,7 +19,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260606-08" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260608-02" />
   </head>
   <body>
     <div class="page-transition is-hidden" id="page-transition" aria-hidden="true">
@@ -56,6 +56,7 @@
       </a>
       <nav class="nav">
         <a href="/">返回首页</a>
+        <a href="/workshop.html">创意工坊</a>
         <a class="nav__btn" href="/feedback.html">提交反馈</a>
         <button class="theme-toggle" type="button" data-theme-toggle="1" aria-label="切换主题">
           <span class="theme-toggle__icon" data-theme-icon>☀</span>
@@ -277,7 +278,7 @@
           <div id="mods-section" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;" hidden>
             <div class="section__head" style="margin: 0 0 10px;">
               <h2 style="margin: 0;">Mod 管理</h2>
-              <p style="margin: 6px 0 0;">拖拽上传到服务器 mods，并可配置多个站外下载链接与描述。</p>
+              <p style="margin: 6px 0 0;">仅维护站外下载条目，不再上传站内文件。</p>
             </div>
 
             <div class="panel__row">
@@ -287,17 +288,18 @@
               <span class="hint" id="mods-status"></span>
             </div>
 
-            <div class="dropzone" id="mods-dropzone">
-              <div class="hint">支持 .jar / .zip，拖到这里，或点击选择文件</div>
-              <div class="panel__row" style="margin: 0;">
-                <input id="mods-file" type="file" accept=".jar,.zip" />
-                <button class="btn btn--primary" type="button" id="mods-upload">上传到服务器</button>
-              </div>
-              <div class="hint" id="mods-picked">未选择文件</div>
-            </div>
-
             <div class="panel" style="margin-top: 12px; padding: 14px;">
-              <div class="hint" id="mods-selected">未选择条目</div>
+              <div class="hint" id="mods-selected">当前为新建模式</div>
+              <div class="grid grid--2" style="margin-top: 10px;">
+                <div class="field">
+                  <div class="field__label">条目标识</div>
+                  <input class="input" id="mods-key" placeholder="例如 forge-1.21.1-main" maxlength="80" />
+                </div>
+                <div class="field">
+                  <div class="field__label">展示名称</div>
+                  <input class="input" id="mods-title" placeholder="例如 Forge 1.21.1 正式版" maxlength="80" />
+                </div>
+              </div>
               <div class="field" style="margin-top: 10px;">
                 <div class="field__label">站外下载链接（可多个）</div>
                 <div class="link-editor" id="mods-links"></div>
@@ -308,21 +310,45 @@
                 <input class="input" id="mods-description" placeholder="显示在官网下方下载区的说明文字" maxlength="120" />
               </div>
               <div class="panel__row" style="margin: 0;">
-                <button class="btn btn--primary" type="button" id="mods-save">保存配置</button>
-                <button class="btn btn--ghost" type="button" id="mods-clear">清空配置</button>
+                <button class="btn btn--primary" type="button" id="mods-save">保存条目</button>
+                <button class="btn btn--ghost" type="button" id="mods-clear">新建空白条目</button>
               </div>
             </div>
 
             <div class="history is-open" id="mods-list" style="margin-top: 12px;"></div>
           </div>
+
+          <div id="workshop-section" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;" hidden>
+            <div class="section__head" style="margin: 0 0 10px;">
+              <h2 style="margin: 0;">创意工坊审核</h2>
+              <p style="margin: 6px 0 0;">管理员可查看待审核投稿，并执行通过或带原因打回。</p>
+            </div>
+
+            <div class="panel__row">
+              <label class="label" for="workshop-status-filter">状态</label>
+              <select class="select" id="workshop-status-filter">
+                <option value="pending">待审核</option>
+                <option value="all">全部</option>
+                <option value="approved">已通过</option>
+                <option value="rejected">已打回</option>
+              </select>
+              <button class="btn btn--ghost" type="button" id="workshop-refresh">刷新列表</button>
+              <span class="hint" id="workshop-status"></span>
+            </div>
+
+            <div class="history is-open" id="workshop-list" style="margin-top: 12px;">
+              <div class="history__item">
+                <div class="history__left">
+                  <div class="history__name">创意工坊审核列表加载中...</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </main>
 
-    <script type="module" src="/assets/site.js?v=20260606-07"></script>
-    <script type="module" src="/assets/admin.js?v=20260606-07"></script>
+    <script type="module" src="/assets/site.js?v=20260608-02"></script>
+    <script type="module" src="/assets/admin.js?v=20260608-02"></script>
   </body>
 </html>
-
-
-
