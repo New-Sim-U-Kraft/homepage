@@ -602,44 +602,78 @@ async function loadCurrentUser() {
 }
 
 function setupAccountShortcut(user) {
+  const isSignedIn = Boolean(user?.username);
+  const perms = Array.isArray(user?.permissions) ? user.permissions : [];
+  const has = (cap) => perms.includes("*") || perms.includes(cap);
+  const canManage = has("users.manage") || has("roles.configure") || has("changelog.manage") || has("mods.manage") || has("developers.manage");
+  const canService = has("feedback.manage") || has("workshop.review");
+
   document.querySelectorAll(".nav").forEach((nav) => {
     if (!(nav instanceof HTMLElement)) return;
-
-    const existing = nav.querySelector('[data-account-link="1"]');
-    const link = existing instanceof HTMLAnchorElement ? existing : document.createElement("a");
-    const isSignedIn = Boolean(user?.username);
-    const profileUrl = user?.profileUrl || "/admin.html";
-    const linkTitle = isSignedIn
-      ? (profileUrl.includes("/developers/")
-          ? `前往${user.displayName || user.username || "我的"}主页`
-          : `前往${user.displayName || user.username || "我的"}账户页`)
-      : "点击进入登录";
-    link.href = isSignedIn ? profileUrl : "/admin.html";
-    link.className = "nav__account";
-    link.dataset.accountLink = "1";
-    link.title = linkTitle;
-    link.setAttribute("aria-label", linkTitle);
-
-    let avatar = link.querySelector(".nav__account-avatar");
-    if (!(avatar instanceof HTMLImageElement)) {
-      avatar = document.createElement("img");
-      avatar.className = "nav__account-avatar";
-      link.replaceChildren(avatar);
+    let area = nav.querySelector('[data-account-area="1"]');
+    if (!(area instanceof HTMLElement)) {
+      area = document.createElement("span");
+      area.dataset.accountArea = "1";
+      area.style.display = "inline-flex";
+      area.style.gap = "8px";
+      area.style.alignItems = "center";
+      nav.append(area);
     }
-    avatar.src = isSignedIn ? user.avatar || "/assets/logo.png" : "/assets/logo.png";
-    avatar.alt = isSignedIn
-      ? `${user.displayName || user.username || "用户"}头像`
-      : "登录入口";
-    avatar.onerror = () => {
-      avatar.onerror = null;
-      avatar.src = "/assets/logo.png";
-    };
+    area.replaceChildren();
 
-    if (!(existing instanceof HTMLAnchorElement)) {
-      nav.append(link);
+    if (!isSignedIn) {
+      const login = document.createElement("a");
+      login.href = "/login.html";
+      login.className = "nav__btn";
+      login.textContent = "登录";
+      const reg = document.createElement("a");
+      reg.href = "/register.html";
+      reg.textContent = "注册";
+      area.append(login, reg);
+      return;
     }
+
+    if (canService) {
+      const a = document.createElement("a");
+      a.href = "/admin.html#feedback";
+      a.textContent = "客服台";
+      area.append(a);
+    }
+    if (canManage) {
+      const a = document.createElement("a");
+      a.href = "/admin.html#manage";
+      a.textContent = "管理后台";
+      area.append(a);
+    }
+    const acc = document.createElement("a");
+    acc.href = "/account.html";
+    acc.className = "nav__account";
+    acc.title = "账户设置";
+    const avatar = document.createElement("img");
+    avatar.className = "nav__account-avatar";
+    avatar.src = user.avatar || "/assets/logo.png";
+    avatar.alt = `${user.displayName || user.username || "用户"}头像`;
+    avatar.onerror = () => { avatar.onerror = null; avatar.src = "/assets/logo.png"; };
+    const name = document.createElement("span");
+    name.textContent = user.displayName || user.username;
+    name.style.marginLeft = "6px";
+    acc.append(avatar, name);
+
+    const logout = document.createElement("a");
+    logout.href = "#";
+    logout.textContent = "退出";
+    logout.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
+      window.dispatchEvent(new CustomEvent(AUTH_CHANGED_EVENT, { detail: { user: null } }));
+      window.location.assign("/");
+    });
+    area.append(acc, logout);
   });
 }
+
+// 供 account.js 等在更新资料后刷新导航
+window.__SITE_REFRESH_AUTH = (user) => { void syncAccountShortcut(user); };
 
 function syncAuthRequiredNodes(user) {
   const level = Number(user?.level || 0);

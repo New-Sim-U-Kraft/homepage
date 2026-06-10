@@ -5,8 +5,13 @@ import {
   scryptHash, makePasswordRecord, verifyPassword,
   createSession, destroySession, destroySessionsForUser, getSessionUser, SESSION_COOKIE,
 } from "../lib/auth.js";
-import { loadUser, shapePublicUser, getCookie, resolveUser, defaultAvatar, isValidQQ } from "../lib/rbac.js";
-import { nowIso } from "../lib/content.js";
+import { loadUser, shapePublicUser, getCookie, resolveUser, defaultAvatar, isValidQQ, requireAuth } from "../lib/rbac.js";
+import { nowIso, isValidImageFileName } from "../lib/content.js";
+
+function imgType(name) {
+  const ext = name.toLowerCase().split(".").pop();
+  return { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" }[ext] || "application/octet-stream";
+}
 
 const r = new Hono();
 
@@ -171,6 +176,45 @@ r.patch("/account", async (c) => {
   const newToken = await createSession(c.env, nextUsername);
   setSessionCookie(c, newToken);
   const updated = await loadUser(c.env, nextUsername);
+  return c.json({ ok: true, user: await shapePublicUser(c.env, updated) });
+});
+
+// 自助修改资料(显示名/QQ/简介)。QQ 变更时,若头像是默认/QQ 头像(非自定义上传)则跟随更新
+r.patch("/profile", requireAuth(), async (c) => {
+  const user = c.get("user");
+  const body = await c.req.json().catch(() => ({}));
+  const displayName = (typeof body.displayName === "string" ? body.displayName.trim() : user.display_name || user.username).slice(0, 20) || user.username;
+  const intro = (typeof body.intro === "string" ? body.intro.trim() : (user.intro || "")).slice(0, 80);
+  const qq = typeof body.qq === "string" ? body.qq.trim() : (user.qq || "");
+  if (qq && !isValidQQ(qq)) return c.json({ ok: false, error: "QQ 号格式不正确" }, 400);
+
+  let avatar = user.avatar;
+  const managed = !avatar || avatar === "/assets/logo.png" || /q\.qlogo\.cn/.test(avatar);
+  if (managed) avatar = defaultAvatar(qq); // 没传过自定义头像 → 跟随 QQ
+  await c.env.DB.prepare(
+    "UPDATE users SET display_name=?, intro=?, qq=?, avatar=?, updated_at=? WHERE username=?"
+  ).bind(displayName, intro, qq, avatar, nowIso(), user.username).run();
+  const updated = await loadUser(c.env, user.username);
+  return c.json({ ok: true, user: await shapePublicUser(c.env, updated) });
+});
+
+// 自助上传头像(R2,单文件)
+r.post("/avatar", requireAuth(), async (c) => {
+  const user = c.get("user");
+  const fileName = decodeURIComponent(c.req.header("x-file-name") || "").trim();
+  if (!isValidImageFileName(fileName)) return c.json({ ok: false, error: "无效头像文件" }, 400);
+  const buf = await c.req.arrayBuffer();
+  if (!buf || buf.byteLength === 0) return c.json({ ok: false, error: "头像文件为空" }, 400);
+  if (buf.byteLength > 10 * 1024 * 1024) return c.json({ ok: false, error: "头像不能超过 10MB" }, 400);
+  try {
+    const listed = await c.env.R2.list({ prefix: `uploads/users/${user.username}/` });
+    for (const o of listed.objects || []) await c.env.R2.delete(o.key);
+  } catch {}
+  const key = `uploads/users/${user.username}/${fileName}`;
+  await c.env.R2.put(key, buf, { httpMetadata: { contentType: imgType(fileName) } });
+  const url = `/uploads/users/${encodeURIComponent(user.username)}/${encodeURIComponent(fileName)}`;
+  await c.env.DB.prepare("UPDATE users SET avatar=?, updated_at=? WHERE username=?").bind(url, nowIso(), user.username).run();
+  const updated = await loadUser(c.env, user.username);
   return c.json({ ok: true, user: await shapePublicUser(c.env, updated) });
 });
 

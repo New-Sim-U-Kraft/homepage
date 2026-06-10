@@ -286,19 +286,41 @@ function wallTypeLabel(wallType) {
   return "不展示";
 }
 
+// 分区按「Tab 分组 + capability」双重控制
+const ADMIN_TABS = {
+  service: ["preview-access", "feedback-section", "workshop-section"],
+  manage: ["accounts-section", "roles-section", "changelog-section", "mods-section"],
+};
+const SECTION_CAP = {
+  "preview-access": (u) => canAccessPreview(u),
+  "feedback-section": (u) => hasCap("feedback.manage", u),
+  "workshop-section": (u) => hasCap("workshop.review", u),
+  "accounts-section": (u) => hasCap("users.manage", u),
+  "roles-section": (u) => hasCap("roles.configure", u),
+  "changelog-section": (u) => hasCap("changelog.manage", u),
+  "mods-section": (u) => hasCap("mods.manage", u),
+};
+function tabOf(id) { return ADMIN_TABS.service.includes(id) ? "service" : "manage"; }
+function groupHasAny(tab, user = state.me) {
+  return ADMIN_TABS[tab].some((id) => SECTION_CAP[id] && SECTION_CAP[id](user));
+}
+
 function syncPermissionView(user = state.me) {
-  const preview = el("preview-access");
-  const accounts = el("accounts-section");
-  const mods = el("mods-section");
-  const changelog = el("changelog-section");
-  const workshop = el("workshop-section");
-  if (preview) preview.hidden = !canAccessPreview(user);
-  if (accounts) accounts.hidden = !hasCap("users.manage", user);
-  if (mods) mods.hidden = !hasCap("mods.manage", user);
-  if (changelog) changelog.hidden = !hasCap("changelog.manage", user);
-  if (workshop) workshop.hidden = !hasCap("workshop.review", user);
-  const roles = el("roles-section");
-  if (roles) roles.hidden = !hasCap("roles.configure", user);
+  const tab = state.adminTab || "service";
+  for (const [id, allow] of Object.entries(SECTION_CAP)) {
+    const node = el(id);
+    if (node) node.hidden = !(allow(user) && tabOf(id) === tab);
+  }
+  const svc = el("tab-service");
+  const mgmt = el("tab-manage");
+  if (svc) { svc.hidden = !groupHasAny("service", user); svc.classList.toggle("btn--primary", tab === "service"); }
+  if (mgmt) { mgmt.hidden = !groupHasAny("manage", user); mgmt.classList.toggle("btn--primary", tab === "manage"); }
+}
+
+function setAdminTab(tab) {
+  if (!groupHasAny(tab)) return;
+  state.adminTab = tab;
+  syncPermissionView();
 }
 
 function setView(state) {
@@ -1183,8 +1205,24 @@ async function boot() {
     return;
   }
 
-  el("me").textContent = `当前登录：${me.displayName || me.username} / ${me.roleName || "游客"} / ${getPermissionLevel(me)}级权限`;
+  el("me").textContent = `当前登录：${me.displayName || me.username} / ${me.roleName || "游客"} / L${getPermissionLevel(me)}`;
   setView("admin");
+
+  // 初始 Tab:按 URL hash 或权限决定
+  const hash = location.hash;
+  let initialTab = hash === "#manage" ? "manage" : hash === "#feedback" ? "service"
+    : (groupHasAny("manage", me) ? "manage" : "service");
+  if (!groupHasAny(initialTab, me)) initialTab = groupHasAny("service", me) ? "service" : "manage";
+  state.adminTab = initialTab;
+  if (!state.tabsWired) {
+    state.tabsWired = true;
+    const sb = el("tab-service");
+    if (sb) sb.addEventListener("click", () => setAdminTab("service"));
+    const mb = el("tab-manage");
+    if (mb) mb.addEventListener("click", () => setAdminTab("manage"));
+  }
+  syncPermissionView(me);
+
   if (me.mustChangePassword) {
     setView("changePw");
     showToast("pw-toast", "检测到默认密码未修改，请先修改密码。", false);
