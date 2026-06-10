@@ -1,4 +1,4 @@
-// 把 src/index.js(Hono 应用)打包成 public/_worker.js,供 Cloudflare Pages(Advanced 模式)使用。
+// 把 src/index.js(Hono 应用)打包成 dist/index.js,作为 Workers(+静态资源)入口。
 import { build } from "esbuild";
 
 // Workers 运行时(nodejs_compat)提供的 Node 内建模块。裸引用(prismarine-nbt 依赖)重写为 node: 前缀并外置。
@@ -19,7 +19,7 @@ const nodeCompatPlugin = {
 
 await build({
   entryPoints: ["src/index.js"],
-  outfile: "public/_worker.js",
+  outfile: "dist/index.js",
   bundle: true,
   format: "esm",
   platform: "browser",
@@ -40,4 +40,4 @@ await build({
   logLevel: "info",
 });
 
-console.log("✓ built public/_worker.js");
+console.log("✓ built dist/index.js");
