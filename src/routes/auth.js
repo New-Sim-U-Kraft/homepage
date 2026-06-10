@@ -265,10 +265,12 @@ r.post("/send-code", async (c) => {
 
   try {
     await sendCodeViaFeishu(c.env, email, code);
-  } catch {
+  } catch (e) {
+    console.error("send-code SMTP error:", e);
     await c.env.KV.delete(`regcode:${email}`);
     await c.env.KV.delete(`regcd:${email}`);
-    return c.json({ ok: false, error: "发送失败,请稍后重试" }, 502);
+    // 临时:暴露错误详情以便排查飞书 SMTP(排查完应去掉 detail)
+    return c.json({ ok: false, error: "发送失败", detail: String(e).slice(0, 300) }, 502);
   }
   return c.json({ ok: true });
 });

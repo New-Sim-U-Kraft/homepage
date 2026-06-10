@@ -58,7 +58,7 @@ const __TRAE_DBG_SESSION = "loading-switch-animation";
 const __TRAE_DBG_RUN_ID = "pre-fix";
 
 function __traeDbgEnabled() {
-  return true;
+  return false; // 关闭旧调试上报(/api/debug/event 已移除)
 }
 
 function __traeDbgEvent(hypothesisId, name, data, location = "public/assets/site.js") {
