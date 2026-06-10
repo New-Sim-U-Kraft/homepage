@@ -642,11 +642,11 @@ function setupAccountShortcut(user) {
 }
 
 function syncAuthRequiredNodes(user) {
-  const permissionLevel = Number(user?.permissionLevel || 0);
+  const level = Number(user?.level || 0);
   document.querySelectorAll('[data-auth-required="1"]').forEach((node) => {
     if (!(node instanceof HTMLElement)) return;
-    const minLevel = Number(node.dataset.authMinLevel || 1);
-    node.hidden = !user || permissionLevel < minLevel;
+    const minLevel = Number(node.dataset.authMinLevel || 0);
+    node.hidden = !user || level < minLevel;
   });
 }
 

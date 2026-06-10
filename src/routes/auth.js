@@ -1,0 +1,282 @@
+// P2/P3:认证 + 注册(邮箱验证码,经飞书 SMTP)。
+import { Hono } from "hono";
+import { WorkerMailer } from "worker-mailer";
+import {
+  scryptHash, makePasswordRecord, verifyPassword,
+  createSession, destroySession, destroySessionsForUser, getSessionUser, SESSION_COOKIE,
+} from "../lib/auth.js";
+import { loadUser, shapePublicUser, getCookie, resolveUser, defaultAvatar, isValidQQ } from "../lib/rbac.js";
+import { nowIso } from "../lib/content.js";
+
+const r = new Hono();
+
+// ---------- 校验 ----------
+const isPasswordValid = (p) => typeof p === "string" && p.trim().length >= 8 && p.trim().length <= 72;
+const isUsernameValid = (u) => typeof u === "string" && /^[\p{L}\p{N}_-]{2,24}$/u.test(u);
+const normalizeUsername = (u) => (typeof u === "string" ? u.trim() : "");
+const isValidEmail = (e) => typeof e === "string" && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+
+// 登录:按 username / qq / email 匹配
+async function loadUserForLogin(env, key) {
+  return await env.DB.prepare(
+    `SELECT u.*, r.level AS level, r.name AS role_name, r.permissions AS permissions
+       FROM users u JOIN roles r ON r.role_key = u.role_key
+      WHERE u.username = ?1 OR u.qq = ?1 OR u.email = ?1 LIMIT 1`
+  ).bind(key).first();
+}
+
+// ---------- Cookie 选项 ----------
+function cookieSecure(env) {
+  return ["1", "true", "yes"].includes(String(env.COOKIE_SECURE ?? "").toLowerCase());
+}
+function setSessionCookie(c, token) {
+  const secure = cookieSecure(c.env);
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${7 * 24 * 3600}`,
+  ];
+  if (secure) parts.push("Secure");
+  c.header("Set-Cookie", parts.join("; "));
+}
+function clearSessionCookie(c) {
+  const parts = [`${SESSION_COOKIE}=`, "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
+  if (cookieSecure(c.env)) parts.push("Secure");
+  c.header("Set-Cookie", parts.join("; "));
+}
+
+// ---------- 登录限流(KV)----------
+async function checkLoginLimit(env, ip) {
+  const raw = await env.KV.get(`loginfail:${ip}`);
+  if (!raw) return { ok: true };
+  const { fails, until } = JSON.parse(raw);
+  const now = Date.now();
+  if (until > now) return { ok: false, retryAfterMs: until - now };
+  return { ok: true, fails };
+}
+async function recordLoginFailure(env, ip) {
+  const raw = await env.KV.get(`loginfail:${ip}`);
+  const prev = raw ? JSON.parse(raw).fails : 0;
+  const fails = Math.min(prev + 1, 20);
+  const lockSec = Math.min(fails * fails, 60);
+  await env.KV.put(`loginfail:${ip}`, JSON.stringify({ fails, until: Date.now() + lockSec * 1000 }),
+    { expirationTtl: Math.max(60, lockSec) });
+}
+const clearLoginFailures = (env, ip) => env.KV.delete(`loginfail:${ip}`);
+
+// ---------- 路由 ----------
+
+// 登录
+r.post("/login", async (c) => {
+  const ip = c.req.header("CF-Connecting-IP") || "unknown";
+  const limit = await checkLoginLimit(c.env, ip);
+  if (!limit.ok) return c.json({ ok: false, retryAfterMs: limit.retryAfterMs }, 429);
+
+  const body = await c.req.json().catch(() => ({}));
+  const username = normalizeUsername(body.username);
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!username || !password) return c.json({ ok: false }, 400);
+
+  const user = await loadUserForLogin(c.env, username);
+  if (!user) { await recordLoginFailure(c.env, ip); return c.json({ ok: false }, 401); }
+  const ok = await verifyPassword(password, { salt: user.password_salt, hash: user.password_hash });
+  if (!ok) { await recordLoginFailure(c.env, ip); return c.json({ ok: false }, 401); }
+
+  await clearLoginFailures(c.env, ip);
+  const token = await createSession(c.env, user.username);
+  setSessionCookie(c, token);
+  await c.env.DB.prepare("UPDATE users SET last_login_at = ? WHERE username = ?")
+    .bind(nowIso(), user.username).run();
+  return c.json({ ok: true, user: await shapePublicUser(c.env, user) });
+});
+
+// 登出
+r.post("/logout", async (c) => {
+  const token = getCookie(c.req.raw, SESSION_COOKIE);
+  await destroySession(c.env, token);
+  clearSessionCookie(c);
+  return c.json({ ok: true });
+});
+
+// 当前用户
+r.get("/me", async (c) => {
+  const token = getCookie(c.req.raw, SESSION_COOKIE);
+  const username = await getSessionUser(c.env, token);
+  if (!username) return c.json({ ok: true, user: null });
+  const user = await loadUser(c.env, username);
+  if (!user) return c.json({ ok: true, user: null });
+  return c.json({ ok: true, user: await shapePublicUser(c.env, user) });
+});
+
+// 改密(任何已登录用户,含 mustChangePassword)
+r.post("/change-password", async (c) => {
+  const token = getCookie(c.req.raw, SESSION_COOKIE);
+  const username = await getSessionUser(c.env, token);
+  if (!username) return c.json({ ok: false }, 401);
+  const body = await c.req.json().catch(() => ({}));
+  const oldPassword = typeof body.oldPassword === "string" ? body.oldPassword : "";
+  if (!oldPassword || !isPasswordValid(body.newPassword)) return c.json({ ok: false }, 400);
+  const user = await loadUser(c.env, username);
+  if (!user) return c.json({ ok: false }, 401);
+  const ok = await verifyPassword(oldPassword, { salt: user.password_salt, hash: user.password_hash });
+  if (!ok) return c.json({ ok: false }, 401);
+  const rec = await makePasswordRecord(body.newPassword.trim());
+  await c.env.DB.prepare(
+    "UPDATE users SET password_salt=?, password_hash=?, must_change_password=0, updated_at=? WHERE username=?"
+  ).bind(rec.salt, rec.hash, nowIso(), username).run();
+  return c.json({ ok: true });
+});
+
+// 修改自己的账户(用户名/密码,需当前密码确认)
+r.patch("/account", async (c) => {
+  const token = getCookie(c.req.raw, SESSION_COOKIE);
+  const sessionUsername = await getSessionUser(c.env, token);
+  if (!sessionUsername) return c.json({ ok: false, error: "请先登录" }, 401);
+  const user = await loadUser(c.env, sessionUsername);
+  if (!user) return c.json({ ok: false, error: "登录状态已失效" }, 401);
+
+  const body = await c.req.json().catch(() => ({}));
+  const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+  const requestedUsername = normalizeUsername(body.newUsername);
+  const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+  const wantsUsername = Boolean(requestedUsername) && requestedUsername !== user.username;
+  const wantsPassword = Boolean(newPassword.trim());
+
+  if (!wantsUsername && !wantsPassword) return c.json({ ok: false, error: "请至少填写一个要修改的项目" }, 400);
+  if (!currentPassword) return c.json({ ok: false, error: "请输入当前密码以确认修改" }, 400);
+  const ok = await verifyPassword(currentPassword, { salt: user.password_salt, hash: user.password_hash });
+  if (!ok) return c.json({ ok: false, error: "当前密码不正确" }, 401);
+
+  let nextUsername = user.username;
+  if (wantsUsername) {
+    if (!isUsernameValid(requestedUsername)) return c.json({ ok: false, error: "账户名仅支持 2-24 位中文、字母、数字、下划线或短横线" }, 400);
+    const conflict = await c.env.DB.prepare("SELECT 1 FROM users WHERE username = ? LIMIT 1").bind(requestedUsername).first();
+    if (conflict) return c.json({ ok: false, error: "该账户名已被使用" }, 409);
+    nextUsername = requestedUsername;
+  }
+  let salt = user.password_salt, hash = user.password_hash, mustChange = user.must_change_password;
+  if (wantsPassword) {
+    if (!isPasswordValid(newPassword)) return c.json({ ok: false, error: "新密码长度需为 8-72 位" }, 400);
+    const rec = await makePasswordRecord(newPassword.trim());
+    salt = rec.salt; hash = rec.hash; mustChange = 0;
+  }
+  await c.env.DB.prepare(
+    "UPDATE users SET username=?, password_salt=?, password_hash=?, must_change_password=?, updated_at=? WHERE username=?"
+  ).bind(nextUsername, salt, hash, mustChange ? 1 : 0, nowIso(), user.username).run();
+  if (wantsUsername) {
+    await c.env.DB.prepare("UPDATE workshop_items SET author_username=? WHERE author_username=?")
+      .bind(nextUsername, user.username).run();
+  }
+  // 重置会话(失效旧的,发新 cookie)
+  await destroySessionsForUser(c.env, user.username);
+  const newToken = await createSession(c.env, nextUsername);
+  setSessionCookie(c, newToken);
+  const updated = await loadUser(c.env, nextUsername);
+  return c.json({ ok: true, user: await shapePublicUser(c.env, updated) });
+});
+
+// ---------- 注册:发送验证码 ----------
+async function sendCodeViaFeishu(env, toEmail, code) {
+  const port = parseInt(env.SMTP_PORT || "465", 10);
+  const mailer = await WorkerMailer.connect({
+    host: env.SMTP_HOST, port, secure: port === 465, authType: "login",
+    credentials: { username: env.SMTP_USER, password: env.SMTP_PASS },
+  });
+  try {
+    await mailer.send({
+      from: { name: env.FROM_NAME || "账号系统", email: env.SMTP_USER },
+      to: { email: toEmail },
+      subject: "你的注册验证码",
+      text: `验证码:${code},10 分钟内有效,请勿泄露。`,
+      html: `<p>注册验证码:<b style="font-size:22px;letter-spacing:3px">${code}</b></p><p>10 分钟内有效,请勿泄露。</p>`,
+    });
+  } finally {
+    await mailer.close();
+  }
+}
+
+r.post("/send-code", async (c) => {
+  const ip = c.req.header("CF-Connecting-IP") || "unknown";
+  const body = await c.req.json().catch(() => ({}));
+  const email = String(body.email || "").trim().toLowerCase();
+  if (!isValidEmail(email)) return c.json({ ok: false, error: "邮箱格式不正确" }, 400);
+
+  // IP 限流:1 小时 10 次
+  const ipKey = `regip:${ip}`;
+  const ipCount = parseInt((await c.env.KV.get(ipKey)) || "0", 10);
+  if (ipCount >= 10) return c.json({ ok: false, error: "请求过于频繁,请稍后再试" }, 429);
+  // 同邮箱冷却 60s
+  if (await c.env.KV.get(`regcd:${email}`)) return c.json({ ok: false, error: "发送过于频繁,请稍后再试" }, 429);
+  // 邮箱已注册?
+  const exists = await c.env.DB.prepare("SELECT 1 FROM users WHERE email = ? LIMIT 1").bind(email).first();
+  if (exists) return c.json({ ok: false, error: "该邮箱已注册" }, 409);
+
+  // 先确认发信可用,再写 KV,避免占用冷却/验证码却发不出
+  if (!c.env.SMTP_USER || !c.env.SMTP_PASS) return c.json({ ok: false, error: "发信未配置" }, 503);
+
+  const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, "0");
+  const expiresAt = Date.now() + 600 * 1000;
+  await c.env.KV.put(`regcode:${email}`, JSON.stringify({ code, attempts: 0, expiresAt }), { expirationTtl: 600 });
+  await c.env.KV.put(`regcd:${email}`, "1", { expirationTtl: 60 });
+  await c.env.KV.put(ipKey, String(ipCount + 1), { expirationTtl: 3600 });
+
+  try {
+    await sendCodeViaFeishu(c.env, email, code);
+  } catch {
+    await c.env.KV.delete(`regcode:${email}`);
+    await c.env.KV.delete(`regcd:${email}`);
+    return c.json({ ok: false, error: "发送失败,请稍后重试" }, 502);
+  }
+  return c.json({ ok: true });
+});
+
+// ---------- 注册:校验码并建号(默认 guest)----------
+r.post("/register", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const username = normalizeUsername(body.username);
+  const displayName = (typeof body.displayName === "string" ? body.displayName.trim() : "").slice(0, 20);
+  const email = String(body.email || "").trim().toLowerCase();
+  const code = String(body.code || "").trim();
+  const password = typeof body.password === "string" ? body.password : "";
+  const qq = (typeof body.qq === "string" ? body.qq.trim() : ""); // 选填
+
+  if (!isUsernameValid(username)) return c.json({ ok: false, error: "账户名仅支持 2-24 位中文、字母、数字、下划线或短横线" }, 400);
+  if (!displayName) return c.json({ ok: false, error: "请填写名称" }, 400);
+  if (!isValidEmail(email)) return c.json({ ok: false, error: "邮箱格式不正确" }, 400);
+  if (!isPasswordValid(password)) return c.json({ ok: false, error: "密码需 8-72 位" }, 400);
+  if (qq && !isValidQQ(qq)) return c.json({ ok: false, error: "QQ 号格式不正确" }, 400);
+
+  // 校验验证码
+  const raw = await c.env.KV.get(`regcode:${email}`);
+  if (!raw) return c.json({ ok: false, error: "验证码已过期,请重新获取" }, 400);
+  const rec = JSON.parse(raw);
+  if (rec.attempts >= 5) { await c.env.KV.delete(`regcode:${email}`); return c.json({ ok: false, error: "尝试次数过多,请重新获取" }, 429); }
+  if (String(rec.code) !== code) {
+    rec.attempts += 1;
+    // 保留原有效期,避免每次错误尝试都把 TTL 续满 10 分钟
+    const remainSec = Math.max(1, Math.floor(((rec.expiresAt || Date.now()) - Date.now()) / 1000));
+    await c.env.KV.put(`regcode:${email}`, JSON.stringify(rec), { expirationTtl: remainSec });
+    return c.json({ ok: false, error: "验证码错误" }, 400);
+  }
+
+  // 唯一性
+  const dupUser = await c.env.DB.prepare("SELECT 1 FROM users WHERE username = ? LIMIT 1").bind(username).first();
+  if (dupUser) return c.json({ ok: false, error: "该账户名已存在" }, 409);
+  const dupEmail = await c.env.DB.prepare("SELECT 1 FROM users WHERE email = ? LIMIT 1").bind(email).first();
+  if (dupEmail) return c.json({ ok: false, error: "该邮箱已注册" }, 409);
+
+  const pw = await makePasswordRecord(password);
+  const now = nowIso();
+  await c.env.DB.prepare(
+    `INSERT INTO users (username, display_name, role_key, wall_type, password_salt, password_hash,
+       must_change_password, email, qq, aliases, avatar, intro, developer_slug, created_at, updated_at, last_login_at)
+     VALUES (?, ?, 'guest', 'none', ?, ?, 0, ?, ?, '[]', ?, '', '', ?, ?, NULL)`
+  ).bind(username, displayName, pw.salt, pw.hash, email, qq, defaultAvatar(qq), now, now).run();
+  await c.env.KV.delete(`regcode:${email}`);
+
+  const token = await createSession(c.env, username);
+  setSessionCookie(c, token);
+  const user = await loadUser(c.env, username);
+  return c.json({ ok: true, user: await shapePublicUser(c.env, user) });
+});
+
+export default r;

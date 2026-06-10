@@ -86,7 +86,7 @@
               </div>
             </div>
             <div class="form__actions">
-              <div class="hint">管理员后台登录入口。</div>
+              <div class="hint">登录入口。还没有账号?<a href="/register.html">去注册</a></div>
               <button class="btn btn--primary" type="submit">登录</button>
             </div>
           </form>
@@ -180,14 +180,18 @@
                     <div class="field__label">一句话简介</div>
                     <input class="input" id="user-intro" maxlength="80" placeholder="例如：负责反馈整理与玩家接待" />
                   </div>
+                  <div class="field">
+                    <div class="field__label">QQ 号（选填，填了将用 QQ 头像）</div>
+                    <input class="input" id="user-qq" maxlength="12" inputmode="numeric" placeholder="例如：123456789" />
+                  </div>
                   <div class="grid grid--3">
                     <div class="field">
                       <div class="field__label">身份</div>
                       <select class="select" id="user-role">
-                        <option value="admin">管理员（3级）</option>
-                        <option value="service">客服（3级）</option>
-                        <option value="sponsor">赞助者（2级）</option>
-                        <option value="guest">游客（1级）</option>
+                        <option value="admin" data-level="3">管理员（L3）</option>
+                        <option value="service" data-level="2">客服（L2）</option>
+                        <option value="sponsor" data-level="1">赞助者（L1）</option>
+                        <option value="guest" data-level="0">游客（L0）</option>
                       </select>
                     </div>
                     <div class="field">
@@ -229,6 +233,17 @@
                 </thead>
                 <tbody></tbody>
               </table>
+            </div>
+          </div>
+
+          <div id="roles-section" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;" hidden>
+            <div class="section__head" style="margin: 0 0 10px;">
+              <h2 style="margin: 0;">身份组权限</h2>
+              <p style="margin: 6px 0 0;">可配置等级低于自身的身份组权限;超级管理员可配置除自身外的所有组。</p>
+            </div>
+            <div class="panel" style="padding: 14px;">
+              <div id="roles-list"></div>
+              <div class="toast" id="roles-toast"></div>
             </div>
           </div>
 

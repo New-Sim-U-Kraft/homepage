@@ -1,0 +1,34 @@
+name = "nsuk-homepage"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "public"
+
+# ---- D1:关系数据(users/roles/feedback/workshop/...) ----
+# 创建: wrangler d1 create nsuk   然后把 database_id 填进来
+[[d1_databases]]
+binding = "DB"
+database_name = "nsuk"
+database_id = "b330bccd-fbb9-429f-a130-dc3b537ac4d4"
+
+# ---- KV:session + 注册验证码 ----
+# 创建: wrangler kv namespace create KV   然后把 id 填进来
+[[kv_namespaces]]
+binding = "KV"
+id = "450297534a2d4f39be8f6548d8536c59"
+
+# ---- R2:上传文件 ----
+# 创建: wrangler r2 bucket create nsuk-uploads
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "nsuk-uploads"
+
+# ---- 非敏感变量 ----
+[vars]
+SMTP_HOST = "smtp.feishu.cn"
+SMTP_PORT = "465"
+FROM_NAME = "NSUK 账号系统"
+
+# ---- secrets(用命令写,不入库)----
+# wrangler pages secret put SESSION_SECRET
+# wrangler pages secret put SMTP_USER
+# wrangler pages secret put SMTP_PASS

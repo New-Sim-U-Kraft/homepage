@@ -258,16 +258,26 @@ function redirectToProfile(user = state.me) {
 }
 
 function getPermissionLevel(user = state.me) {
-  const level = Number(user?.permissionLevel || 0);
+  const level = Number(user?.level || 0);
   return Number.isFinite(level) ? level : 0;
 }
 
-function canAccessPreview(user = state.me) {
-  return getPermissionLevel(user) >= 2;
+// 新模型:capability 判定
+function hasCap(cap, user = state.me) {
+  const perms = Array.isArray(user?.permissions) ? user.permissions : [];
+  return perms.includes("*") || perms.includes(cap);
 }
 
+function canAccessPreview(user = state.me) {
+  return getPermissionLevel(user) >= 1; // 赞助者及以上
+}
+
+// 能否进入后台:拥有任一管理权限(service 客服起步)
 function canManageSite(user = state.me) {
-  return getPermissionLevel(user) >= 3;
+  return hasCap("users.manage", user) || hasCap("roles.configure", user) ||
+    hasCap("workshop.review", user) || hasCap("feedback.manage", user) ||
+    hasCap("changelog.manage", user) || hasCap("mods.manage", user) ||
+    hasCap("developers.manage", user) || hasCap("audit.view", user);
 }
 
 function wallTypeLabel(wallType) {
@@ -283,10 +293,12 @@ function syncPermissionView(user = state.me) {
   const changelog = el("changelog-section");
   const workshop = el("workshop-section");
   if (preview) preview.hidden = !canAccessPreview(user);
-  if (accounts) accounts.hidden = !canManageSite(user);
-  if (mods) mods.hidden = !canManageSite(user);
-  if (changelog) changelog.hidden = !canManageSite(user);
-  if (workshop) workshop.hidden = !canManageSite(user);
+  if (accounts) accounts.hidden = !hasCap("users.manage", user);
+  if (mods) mods.hidden = !hasCap("mods.manage", user);
+  if (changelog) changelog.hidden = !hasCap("changelog.manage", user);
+  if (workshop) workshop.hidden = !hasCap("workshop.review", user);
+  const roles = el("roles-section");
+  if (roles) roles.hidden = !hasCap("roles.configure", user);
 }
 
 function setView(state) {
@@ -311,7 +323,14 @@ function setupPasswordToggles() {
   });
 }
 
-function renderUserItems(items, onDelete) {
+const ROLE_OPTIONS = [
+  { key: "guest", level: 0, label: "游客 L0" },
+  { key: "sponsor", level: 1, label: "赞助者 L1" },
+  { key: "service", level: 2, label: "客服 L2" },
+  { key: "admin", level: 3, label: "管理员 L3" },
+];
+
+function renderUserItems(items, onDelete, onRoleChange) {
   const table = el("users-table");
   if (!(table instanceof HTMLTableElement)) return;
   const tbody = table.querySelector("tbody");
@@ -321,12 +340,20 @@ function renderUserItems(items, onDelete) {
   for (const item of items) {
     const tr = document.createElement("tr");
     const displayName = item.displayName || item.username || "—";
-    const roleText = `${item.roleName || "游客"} / ${item.permissionLevel || 0}级`;
+    const roleText = `${item.roleName || "游客"} / L${item.level ?? 0}`;
     const wallText = wallTypeLabel(item.wallType);
     const intro = item.intro || "—";
     const firstLoginText = item.mustChangePassword ? "待首次改密" : "已激活";
     const lastLoginText = formatTime(item.lastLoginAt);
     const canDelete = !item.developerSlug && item.username !== state.me?.username;
+    const actorLevel = Number(state.me?.level || 0);
+    const canManageTarget = hasCap("users.manage") && Number(item.level || 0) < actorLevel && item.username !== state.me?.username;
+    const roleSelect = canManageTarget
+      ? `<select class="select" data-role-user="${escapeHtml(item.username || "")}" style="margin-bottom:6px;min-width:110px;">${
+          ROLE_OPTIONS.filter((o) => o.level < actorLevel)
+            .map((o) => `<option value="${o.key}"${o.key === item.roleKey ? " selected" : ""}>${o.label}</option>`).join("")
+        }</select>`
+      : "";
 
     const cells = [
       `<img src="${escapeHtml(item.avatar || "/assets/logo.png")}" alt="${escapeHtml(displayName)}头像" style="width:32px;height:32px;border-radius:8px;object-fit:cover;border:1px solid rgba(255,255,255,0.12);" onerror="this.onerror=null;this.src='/assets/logo.png';" />`,
@@ -337,9 +364,11 @@ function renderUserItems(items, onDelete) {
       escapeHtml(intro),
       escapeHtml(firstLoginText),
       escapeHtml(lastLoginText),
-      canDelete
-        ? `<button class="btn btn--ghost" type="button" data-delete-user="${escapeHtml(item.username || "")}">删除</button>`
-        : `<span class="hint">不可删除</span>`,
+      `${roleSelect}${
+        canDelete
+          ? `<button class="btn btn--ghost" type="button" data-delete-user="${escapeHtml(item.username || "")}">删除</button>`
+          : roleSelect ? "" : `<span class="hint">不可删除</span>`
+      }`,
     ];
 
     cells.forEach((html) => {
@@ -350,6 +379,10 @@ function renderUserItems(items, onDelete) {
     const deleteButton = tr.querySelector("[data-delete-user]");
     if (deleteButton instanceof HTMLButtonElement && typeof onDelete === "function") {
       deleteButton.addEventListener("click", () => onDelete(item));
+    }
+    const roleSel = tr.querySelector("[data-role-user]");
+    if (roleSel instanceof HTMLSelectElement && typeof onRoleChange === "function") {
+      roleSel.addEventListener("change", () => onRoleChange(item, roleSel.value));
     }
     tbody.appendChild(tr);
   }
@@ -362,6 +395,7 @@ function setupUsersManager() {
   const usernameInput = el("user-username");
   const displayNameInput = el("user-display-name");
   const introInput = el("user-intro");
+  const qqInput = el("user-qq");
   const roleInput = el("user-role");
   const wallTypeInput = el("user-wall-type");
   const avatarInput = el("user-avatar");
@@ -378,6 +412,16 @@ function setupUsersManager() {
   ) {
     return null;
   }
+
+  // 只能创建等级低于自身的身份组
+  const actorLevel = Number(state.me?.level || 0);
+  [...roleInput.options].forEach((opt) => {
+    const lvl = Number(opt.dataset.level || 0);
+    opt.disabled = lvl >= actorLevel;
+    opt.hidden = lvl >= actorLevel;
+  });
+  const firstEnabled = [...roleInput.options].find((o) => !o.disabled);
+  if (firstEnabled) roleInput.value = firstEnabled.value;
 
   function syncRoleWallType() {
     if (roleInput.value === "sponsor" && wallTypeInput.value === "none") {
@@ -409,23 +453,37 @@ function setupUsersManager() {
   }
 
   async function refresh() {
-    if (!canManageSite()) return;
+    if (!hasCap("users.manage")) return;
     const data = await fetchJson("/api/admin/users");
-    renderUserItems(Array.isArray(data.items) ? data.items : [], async (item) => {
-      const ok = window.confirm(`确认删除账户 ${item.displayName || item.username} 吗？删除后会同步从墙面移除。`);
-      if (!ok) return;
-      showToast("user-toast", "删除中…", true);
-      try {
-        await deleteJson(`/api/admin/users/${encodeURIComponent(item.username || "")}`);
-        await refresh();
-        if (state.changelogManager) {
-          void state.changelogManager.refresh();
+    renderUserItems(
+      Array.isArray(data.items) ? data.items : [],
+      async (item) => {
+        const ok = window.confirm(`确认删除账户 ${item.displayName || item.username} 吗？删除后会同步从墙面移除。`);
+        if (!ok) return;
+        showToast("user-toast", "删除中…", true);
+        try {
+          await deleteJson(`/api/admin/users/${encodeURIComponent(item.username || "")}`);
+          await refresh();
+          if (state.changelogManager) {
+            void state.changelogManager.refresh();
+          }
+          showToast("user-toast", "账户已删除，首页墙面会同步更新。", true);
+        } catch (err) {
+          showToast("user-toast", `删除失败：${err instanceof Error ? err.message : String(err)}`, false);
         }
-        showToast("user-toast", "账户已删除，首页墙面会同步更新。", true);
-      } catch (err) {
-        showToast("user-toast", `删除失败：${err instanceof Error ? err.message : String(err)}`, false);
-      }
-    });
+      },
+      async (item, roleKey) => {
+        showToast("user-toast", "身份更新中…", true);
+        try {
+          await patchJson(`/api/admin/users/${encodeURIComponent(item.username || "")}/role`, { roleKey });
+          await refresh();
+          showToast("user-toast", `已将 ${item.displayName || item.username} 设为新身份。`, true);
+        } catch (err) {
+          showToast("user-toast", `身份变更失败：${err instanceof Error ? err.message : String(err)}`, false);
+          await refresh();
+        }
+      },
+    );
   }
 
   form.addEventListener("submit", async (event) => {
@@ -443,6 +501,7 @@ function setupUsersManager() {
         username: usernameInput.value.trim(),
         displayName: displayNameInput.value.trim(),
         intro: introInput.value.trim(),
+        qq: qqInput instanceof HTMLInputElement ? qqInput.value.trim() : "",
         roleKey: roleInput.value,
         wallType: wallTypeInput.value,
       });
@@ -450,9 +509,10 @@ function setupUsersManager() {
         await uploadAvatar(created.user?.username || usernameInput.value.trim(), avatarFile);
       }
       form.reset();
-      roleInput.value = "guest";
+      if (firstEnabled) roleInput.value = firstEnabled.value;
       wallTypeInput.value = "none";
       avatarInput.value = "";
+      if (qqInput instanceof HTMLInputElement) qqInput.value = "";
       toggleForm(false);
       await refresh();
       showToast("user-toast", "账户已创建，初始密码与账户名相同，首次登录需修改。", true);
@@ -1049,6 +1109,66 @@ function setupChangelogManager() {
   return { refresh };
 }
 
+const CAP_LABELS = {
+  "users.manage": "用户管理",
+  "roles.configure": "身份组配置",
+  "workshop.review": "工坊审核",
+  "feedback.manage": "反馈处理",
+  "changelog.manage": "更新日志",
+  "mods.manage": "外部MOD",
+  "developers.manage": "开发者资料",
+  "audit.view": "审计日志",
+};
+
+function setupRolesManager() {
+  const list = el("roles-list");
+  if (!(list instanceof HTMLElement)) return null;
+
+  async function refresh() {
+    if (!hasCap("roles.configure")) return;
+    const data = await fetchJson("/api/admin/roles");
+    const caps = Array.isArray(data.caps) ? data.caps : Object.keys(CAP_LABELS);
+    const myPerms = Array.isArray(state.me?.permissions) ? state.me.permissions : [];
+    const canGrant = (cap) => myPerms.includes("*") || myPerms.includes(cap);
+    list.innerHTML = "";
+    for (const role of data.items || []) {
+      if (role.roleKey === "superadmin") continue;
+      const editable = role.manageable;
+      const checks = caps.map((cap) => {
+        const checked = (role.permissions || []).includes(cap) ? " checked" : "";
+        const disabled = !editable || !canGrant(cap) ? " disabled" : "";
+        return `<label style="display:inline-flex;gap:4px;align-items:center;margin:2px 12px 2px 0;"><input type="checkbox" data-cap="${escapeHtml(cap)}"${checked}${disabled}/> ${escapeHtml(CAP_LABELS[cap] || cap)}</label>`;
+      }).join("");
+      const wrap = document.createElement("div");
+      wrap.className = "panel";
+      wrap.style.cssText = "padding:12px;margin-bottom:10px;";
+      wrap.innerHTML =
+        `<div style="font-weight:600;margin-bottom:6px;">${escapeHtml(role.name)} <span class="hint">L${role.level}</span></div>` +
+        `<div data-role-caps="${escapeHtml(role.roleKey)}">${checks}</div>` +
+        (editable
+          ? `<div style="margin-top:8px;"><button class="btn btn--primary" type="button" data-save-role="${escapeHtml(role.roleKey)}">保存</button></div>`
+          : `<div class="hint" style="margin-top:6px;">无权配置该身份组</div>`);
+      list.appendChild(wrap);
+    }
+    list.querySelectorAll("[data-save-role]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const roleKey = btn.getAttribute("data-save-role");
+        const container = list.querySelector(`[data-role-caps="${roleKey}"]`);
+        if (!container) return;
+        const permissions = [...container.querySelectorAll("input[data-cap]:checked")].map((i) => i.getAttribute("data-cap"));
+        showToast("roles-toast", "保存中…", true);
+        try {
+          await patchJson(`/api/admin/roles/${encodeURIComponent(roleKey)}`, { permissions });
+          showToast("roles-toast", "权限已更新。", true);
+        } catch (err) {
+          showToast("roles-toast", `保存失败：${err instanceof Error ? err.message : String(err)}`, false);
+        }
+      });
+    });
+  }
+  return { refresh };
+}
+
 async function boot() {
   const me = await getMe();
   state.me = me;
@@ -1074,16 +1194,20 @@ async function boot() {
     if (!state.modsManager) state.modsManager = setupModsManager();
     if (!state.workshopManager) state.workshopManager = setupWorkshopManager();
     if (!state.changelogManager) state.changelogManager = setupChangelogManager();
-    if (canManageSite(me) && state.usersManager) {
+    if (!state.rolesManager) state.rolesManager = setupRolesManager();
+    if (hasCap("roles.configure", me) && state.rolesManager) {
+      await state.rolesManager.refresh();
+    }
+    if (hasCap("users.manage", me) && state.usersManager) {
       await state.usersManager.refresh();
     }
-    if (canManageSite(me) && state.modsManager) {
+    if (hasCap("mods.manage", me) && state.modsManager) {
       await state.modsManager.refreshAll();
     }
-    if (canManageSite(me) && state.workshopManager) {
+    if (hasCap("workshop.review", me) && state.workshopManager) {
       await state.workshopManager.refresh();
     }
-    if (canManageSite(me) && state.changelogManager) {
+    if (hasCap("changelog.manage", me) && state.changelogManager) {
       await state.changelogManager.refresh();
     }
   }
