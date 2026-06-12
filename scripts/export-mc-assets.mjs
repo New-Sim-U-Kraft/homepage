@@ -30,3 +30,14 @@ mkdirSync(destDir, { recursive: true });
 cpSync(blocksDir, destDir, { recursive: true });
 const count = readdirSync(destDir).filter((f) => f.endsWith(".png")).length;
 console.log(`✓ ${destDir} (${count} textures)`);
+
+// 3) three.js 库(NBT 预览 nbt-viewer.js 用):复制到 public/vendor/three
+const threeBuild = path.join("node_modules", "three", "build");
+const threeDest = path.join("public", "vendor", "three");
+mkdirSync(threeDest, { recursive: true });
+let threeCopied = 0;
+for (const f of ["three.module.js", "three.core.js", "three.module.min.js", "three.core.min.js"]) {
+  const src = path.join(threeBuild, f);
+  if (existsSync(src)) { cpSync(src, path.join(threeDest, f)); threeCopied++; }
+}
+console.log(`✓ ${threeDest} (${threeCopied} three.js files)`);
