@@ -682,13 +682,14 @@ function setupAccountShortcut(user) {
     avatar.src = user.avatar || "/assets/logo.png";
     avatar.alt = `${user.displayName || user.username || "用户"}头像`;
     avatar.onerror = () => { avatar.onerror = null; avatar.src = "/assets/logo.png"; };
-    const name = document.createElement("span");
+    acc.append(avatar);
+
+    // 名字作为兄弟元素,用自带省略号的 .nav__account-name(放进 38px 头像按钮会被裁掉)
+    const name = document.createElement("a");
+    name.href = "/account.html";
+    name.className = "nav__account-name";
     name.textContent = user.displayName || user.username;
-    name.title = user.displayName || user.username; // 悬停看全名
-    name.style.cssText =
-      "margin-left:6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;" +
-      "white-space:nowrap;display:inline-block;vertical-align:middle;";
-    acc.append(avatar, name);
+    name.title = user.displayName || user.username;
 
     const logout = document.createElement("a");
     logout.href = "#";
@@ -699,7 +700,7 @@ function setupAccountShortcut(user) {
       window.dispatchEvent(new CustomEvent(AUTH_CHANGED_EVENT, { detail: { user: null } }));
       window.location.assign("/");
     });
-    area.append(acc, logout);
+    area.append(acc, name, logout);
   });
 }
 

@@ -136,12 +136,14 @@ function renderImages(item) {
 function renderWorkshopItems(items) {
   const grid = el("workshop-grid");
   if (!(grid instanceof HTMLElement)) return;
-  if (!Array.isArray(items) || items.length === 0) {
-    grid.innerHTML = `<div class="panel panel--empty">当前分类下还没有已通过的创意工坊内容。</div>`;
+  const limit = Number(grid.dataset.limit || 0);
+  const list = Array.isArray(items) ? (limit > 0 ? items.slice(0, limit) : items) : [];
+  if (list.length === 0) {
+    grid.innerHTML = `<div class="panel panel--empty">还没有已通过的创意工坊作品。</div>`;
     return;
   }
 
-  grid.innerHTML = items
+  grid.innerHTML = list
     .map((item) => {
       const authorName = item.author?.displayName || item.author?.username || "未知玩家";
       const authorUrl = item.author?.profileUrl || "#";
@@ -275,22 +277,23 @@ function collectExternalLinks() {
 async function loadCategories() {
   const filterSelect = el("workshop-filter");
   const categorySelect = el("workshop-category");
-  if (!(filterSelect instanceof HTMLSelectElement) || !(categorySelect instanceof HTMLSelectElement)) return;
+  if (!(filterSelect instanceof HTMLSelectElement) && !(categorySelect instanceof HTMLSelectElement)) return;
 
   const data = await fetchJson("/api/workshop/meta");
   state.categories = Array.isArray(data.categories) ? data.categories : [];
-
-  filterSelect.innerHTML =
-    `<option value="">全部分类</option>` +
-    state.categories
-      .map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`)
-      .join("");
-  categorySelect.innerHTML = state.categories
+  const opts = state.categories
     .map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`)
     .join("");
+  if (filterSelect instanceof HTMLSelectElement) {
+    filterSelect.innerHTML = `<option value="">全部分类</option>` + opts;
+  }
+  if (categorySelect instanceof HTMLSelectElement) {
+    categorySelect.innerHTML = opts;
+  }
 }
 
 async function loadApprovedItems() {
+  if (!(el("workshop-grid") instanceof HTMLElement)) return;
   const query = state.filter ? `?category=${encodeURIComponent(state.filter)}` : "";
   const data = await fetchJson(`/api/workshop${query}`);
   renderWorkshopItems(Array.isArray(data.items) ? data.items : []);
