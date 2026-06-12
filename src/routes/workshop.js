@@ -10,19 +10,22 @@ import { sanitizeNbtPreviewValue, extractWorkshopRenderModel, parseNbtBuffer } f
 
 const r = new Hono();
 
-// NBT 上传(二进制)
+// 上传(二进制):图片 或 NBT
 r.post("/upload", requireAuth(), async (c) => {
-  const kind = c.req.query("kind") === "nbt" ? "nbt" : "";
+  const q = c.req.query("kind");
+  const kind = q === "nbt" ? "nbt" : q === "image" ? "image" : "";
   const draftId = String(c.req.query("draftId") || "").trim();
   if (!kind || !isValidFeedbackDraftId(draftId)) return c.json({ ok: false, error: "无效上传参数" }, 400);
   const fileName = decodeURIComponent(c.req.header("x-file-name") || "").trim();
-  if (!isValidWorkshopFileName(kind, fileName)) return c.json({ ok: false, error: "创意工坊现在只支持上传 .nbt 文件" }, 400);
+  if (!isValidWorkshopFileName(kind, fileName)) return c.json({ ok: false, error: "图片支持 png/jpg/webp/gif;NBT 为 .nbt" }, 400);
   const buf = await c.req.arrayBuffer();
   if (!buf || buf.byteLength === 0) return c.json({ ok: false, error: "上传文件为空" }, 400);
-  if (buf.byteLength > 30 * 1024 * 1024) return c.json({ ok: false, error: "单个创意工坊文件不能超过 30MB" }, 400);
+  const limit = kind === "image" ? 10 * 1024 * 1024 : 25 * 1024 * 1024;
+  if (buf.byteLength > limit) return c.json({ ok: false, error: kind === "image" ? "图片不能超过 10MB" : "NBT 不能超过 25MB" }, 400);
 
+  const contentType = kind === "image" ? imgType(fileName) : "application/octet-stream";
   const key = `uploads/workshop/${draftId}/${kind}/${fileName}`;
-  await c.env.R2.put(key, buf, { httpMetadata: { contentType: "application/octet-stream" } });
+  await c.env.R2.put(key, buf, { httpMetadata: { contentType } });
   return c.json({
     ok: true,
     attachment: {
@@ -44,7 +47,7 @@ r.post("/", requireAuth(), async (c) => {
   const description = (typeof body.description === "string" ? body.description.trim() : "").slice(0, 1200);
   if (!title || !description) return c.json({ ok: false, error: "请填写作品名称和描述介绍" }, 400);
   const files = sanitizeWorkshopFiles(body.files, category, draftId);
-  if (!files) return c.json({ ok: false, error: "当前投稿必须上传 NBT 文件" }, 400);
+  if (!files) return c.json({ ok: false, error: "请至少上传一张作品图片" }, 400);
   const externalLinks = sanitizeWorkshopExternalLinks(body.externalLinks);
   if (Array.isArray(body.externalLinks) && body.externalLinks.length && externalLinks.length === 0) {
     return c.json({ ok: false, error: "外链格式无效,请检查链接地址" }, 400);
@@ -89,5 +92,10 @@ r.get("/nbt-preview", async (c) => {
     return c.json({ ok: false, error: "NBT 解析失败,可能不是有效的结构文件" }, 400);
   }
 });
+
+function imgType(name) {
+  const ext = name.toLowerCase().split(".").pop();
+  return { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" }[ext] || "application/octet-stream";
+}
 
 export default r;

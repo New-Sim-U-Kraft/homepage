@@ -81,6 +81,7 @@ export function isValidFeedbackFileName(name) {
 export function isValidWorkshopFileName(kind, name) {
   if (!isValidFeedbackFileName(name)) return false;
   if (kind === "nbt") return /\.nbt$/i.test(name);
+  if (kind === "image") return /\.(png|jpe?g|webp|gif)$/i.test(name);
   return false;
 }
 
@@ -110,7 +111,6 @@ export function sanitizeWorkshopExternalLinks(value) {
 }
 
 // ---------- 工坊附件/条目 ----------
-const WORKSHOP_REQUIRED_KINDS = ["nbt"];
 export function sanitizeWorkshopAttachment(item, kind, draftId) {
   if (!item || typeof item !== "object") return null;
   if (!isValidFeedbackDraftId(draftId)) return null;
@@ -122,14 +122,20 @@ export function sanitizeWorkshopAttachment(item, kind, draftId) {
   const size = Number(item.size);
   return { kind, name, url, size: Number.isFinite(size) && size > 0 ? size : 0 };
 }
+// 新模型:图片必填(≥1),NBT 选填。返回 { images: [...], nbt?: {...} };无图片返回 null
 export function sanitizeWorkshopFiles(files, category, draftId) {
   const src = files && typeof files === "object" ? files : {};
-  const out = {};
-  for (const kind of WORKSHOP_REQUIRED_KINDS) {
-    const att = sanitizeWorkshopAttachment(src[kind], kind, draftId);
-    if (!att) return null; // 必须有 nbt
-    out[kind] = att;
+  const out = { images: [] };
+  if (Array.isArray(src.images)) {
+    for (const item of src.images) {
+      if (out.images.length >= 8) break;
+      const att = sanitizeWorkshopAttachment(item, "image", draftId);
+      if (att) out.images.push(att);
+    }
   }
+  if (out.images.length === 0) return null;
+  const nbt = sanitizeWorkshopAttachment(src.nbt, "nbt", draftId);
+  if (nbt) out.nbt = nbt;
   return out;
 }
 export function normalizeWorkshopStatus(v) {

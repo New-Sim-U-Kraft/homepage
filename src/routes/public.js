@@ -27,8 +27,15 @@ async function loadUserMap(env, usernames) {
   return map;
 }
 
-// 1. 公告
+// 1. 公告(优先后台配置,未配置则回落到静态文件)
 r.get("/announcements", async (c) => {
+  try {
+    const row = await c.env.DB.prepare("SELECT value FROM site_config WHERE key='announcements'").first();
+    if (row) {
+      const arr = JSON.parse(row.value);
+      if (Array.isArray(arr)) return c.json({ announcements: arr.map((s) => String(s).trim()).filter(Boolean) });
+    }
+  } catch {}
   try {
     const res = await c.env.ASSETS.fetch(new URL("/config/announcements.txt", c.req.url));
     if (!res.ok) return c.json({ announcements: [] });

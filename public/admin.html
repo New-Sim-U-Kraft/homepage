@@ -125,10 +125,9 @@
 
           <div class="toast" id="toast"></div>
 
-          <div class="panel__row" id="admin-tabs" style="margin-top: 12px; gap: 8px;">
-            <button class="btn" type="button" id="tab-service" hidden>客服台</button>
-            <button class="btn" type="button" id="tab-manage" hidden>站点管理</button>
-          </div>
+          <div class="admin-layout" style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; margin-top:12px;">
+            <nav class="admin-sidebar" id="admin-sidebar" style="display:flex; flex-direction:column; gap:6px; min-width:150px; flex:0 0 auto;"></nav>
+            <div class="admin-content" id="admin-content" style="flex:1; min-width:280px;">
 
           <div class="panel" id="preview-access" style="margin-top: 12px; padding: 14px;" hidden>
             <div style="font-weight: 800;">内测尝鲜</div>
@@ -338,6 +337,24 @@
             <div class="history is-open" id="mods-list" style="margin-top: 12px;"></div>
           </div>
 
+          <div id="site-section" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;" hidden>
+            <div class="section__head" style="margin: 0 0 10px;">
+              <h2 style="margin: 0;">首页内容</h2>
+              <p style="margin: 6px 0 0;">编辑首页滚动公告(每行一条),保存后首页即时生效。</p>
+            </div>
+            <div class="panel" style="padding: 14px; max-width: 760px;">
+              <div class="field">
+                <div class="field__label">滚动公告(每行一条)</div>
+                <textarea class="textarea" id="site-announcements" rows="6" placeholder="一行一条公告"></textarea>
+              </div>
+              <div class="form__actions">
+                <div class="hint">最多 50 条;空行自动忽略。</div>
+                <button class="btn btn--primary" type="button" id="site-save">保存</button>
+              </div>
+              <div class="toast" id="site-toast"></div>
+            </div>
+          </div>
+
           <div id="workshop-section" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;" hidden>
             <div class="section__head" style="margin: 0 0 10px;">
               <h2 style="margin: 0;">创意工坊审核</h2>
@@ -362,6 +379,8 @@
                   <div class="history__name">创意工坊审核列表加载中...</div>
                 </div>
               </div>
+            </div>
+          </div>
             </div>
           </div>
         </div>

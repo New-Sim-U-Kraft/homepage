@@ -80,6 +80,12 @@ CREATE TABLE IF NOT EXISTS developers (
   slug TEXT PRIMARY KEY, data TEXT NOT NULL
 );
 
+-- ============ 站点配置(首页公告等,后台可编辑) ============
+CREATE TABLE IF NOT EXISTS site_config (
+  key   TEXT PRIMARY KEY,   -- 如 'announcements'
+  value TEXT NOT NULL       -- JSON
+);
+
 -- ============ 审计日志 ============
 CREATE TABLE IF NOT EXISTS audit_log (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

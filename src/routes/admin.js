@@ -265,6 +265,24 @@ r.delete("/mods/external", requireCap(CAPS.MODS_MANAGE), async (c) => {
   return c.json({ ok: true });
 });
 
+// ============ 首页内容(公告等) ============
+r.get("/site-config", requireCap(CAPS.CHANGELOG_MANAGE), async (c) => {
+  const row = await c.env.DB.prepare("SELECT value FROM site_config WHERE key='announcements'").first();
+  let announcements = [];
+  if (row) { try { announcements = JSON.parse(row.value); } catch {} }
+  return c.json({ ok: true, announcements: Array.isArray(announcements) ? announcements : [] });
+});
+r.put("/site-config", requireCap(CAPS.CHANGELOG_MANAGE), async (c) => {
+  const actor = c.get("user");
+  const body = await c.req.json().catch(() => ({}));
+  const announcements = Array.isArray(body.announcements)
+    ? body.announcements.map((s) => String(s).trim()).filter(Boolean).slice(0, 50) : [];
+  await c.env.DB.prepare("INSERT OR REPLACE INTO site_config (key, value) VALUES ('announcements', ?)")
+    .bind(JSON.stringify(announcements)).run();
+  await audit(c.env, actor.username, "site.config", "announcements", { count: announcements.length });
+  return c.json({ ok: true, announcements });
+});
+
 // ============ 工坊审核 ============
 async function workshopUserMap(env, usernames) {
   const map = new Map();

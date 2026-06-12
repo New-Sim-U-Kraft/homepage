@@ -115,6 +115,24 @@ function renderExternalLinkButtons(links) {
     .join("");
 }
 
+function renderImages(item) {
+  const images = Array.isArray(item?.files?.images) ? item.files.images : [];
+  if (images.length === 0) return "";
+  return (
+    `<div class="workshop-card__images" style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">` +
+    images
+      .map(
+        (img) =>
+          `<a href="${escapeHtml(img.url)}" target="_blank" rel="noreferrer">` +
+          `<img src="${escapeHtml(img.url)}" alt="${escapeHtml(item.title || "作品图片")}" loading="lazy" ` +
+          `style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--line);" ` +
+          `onerror="this.style.display='none'" /></a>`,
+      )
+      .join("") +
+    `</div>`
+  );
+}
+
 function renderWorkshopItems(items) {
   const grid = el("workshop-grid");
   if (!(grid instanceof HTMLElement)) return;
@@ -139,7 +157,10 @@ function renderWorkshopItems(items) {
         `<span>发布时间：${escapeHtml(formatTime(item.publishedAt || item.updatedAt))}</span>` +
         `</div>` +
         `<div class="workshop-card__desc">${escapeHtml(item.description || "暂无描述")}</div>` +
-        `<div class="workshop-card__block"><div class="workshop-card__label">NBT 文件</div><div class="button-row">${renderNbtButtons(item)}</div></div>` +
+        renderImages(item) +
+        (item?.files?.nbt
+          ? `<div class="workshop-card__block"><div class="workshop-card__label">NBT 文件</div><div class="button-row">${renderNbtButtons(item)}</div></div>`
+          : "") +
         `<div class="workshop-card__block"><div class="workshop-card__label">附加外链</div><div class="button-row">${renderExternalLinkButtons(item.externalLinks)}</div></div>` +
         `</article>`
       );
@@ -294,9 +315,9 @@ async function loadMe() {
   syncAuthHint();
 }
 
-async function uploadWorkshopFile(file, draftId) {
+async function uploadWorkshopFile(file, draftId, kind) {
   const buffer = await file.arrayBuffer();
-  const data = await fetchJson(`/api/workshop/upload?draftId=${encodeURIComponent(draftId)}&kind=nbt`, {
+  const data = await fetchJson(`/api/workshop/upload?draftId=${encodeURIComponent(draftId)}&kind=${kind}`, {
     method: "POST",
     headers: {
       "content-type": "application/octet-stream",
@@ -311,6 +332,7 @@ function bindEvents() {
   const filterSelect = el("workshop-filter");
   const categorySelect = el("workshop-category");
   const form = el("workshop-form");
+  const fileImages = el("workshop-images");
   const fileNbt = el("workshop-file-nbt");
   const titleInput = el("workshop-title");
   const descriptionInput = el("workshop-description");
@@ -320,7 +342,7 @@ function bindEvents() {
     !(filterSelect instanceof HTMLSelectElement) ||
     !(categorySelect instanceof HTMLSelectElement) ||
     !(form instanceof HTMLFormElement) ||
-    !(fileNbt instanceof HTMLInputElement) ||
+    !(fileImages instanceof HTMLInputElement) ||
     !(titleInput instanceof HTMLInputElement) ||
     !(descriptionInput instanceof HTMLTextAreaElement) ||
     !(addLinkButton instanceof HTMLButtonElement)
@@ -349,13 +371,22 @@ function bindEvents() {
       return;
     }
 
-    const nbtFile = fileNbt.files?.[0] || null;
+    const imageFiles = fileImages.files ? Array.from(fileImages.files) : [];
+    const nbtFile = (fileNbt instanceof HTMLInputElement && fileNbt.files?.[0]) || null;
     if (!titleInput.value.trim() || !descriptionInput.value.trim()) {
       showToast("请先填写作品名称和描述介绍。", false);
       return;
     }
-    if (!nbtFile) {
-      showToast("请上传 NBT 文件。", false);
+    if (imageFiles.length === 0) {
+      showToast("请至少上传一张作品图片。", false);
+      return;
+    }
+    if (imageFiles.length > 8) {
+      showToast("最多上传 8 张图片。", false);
+      return;
+    }
+    if (imageFiles.some((f) => f.size > 10 * 1024 * 1024)) {
+      showToast("单张图片不能超过 10MB。", false);
       return;
     }
 
@@ -364,11 +395,15 @@ function bindEvents() {
     if (submitButton instanceof HTMLButtonElement) submitButton.disabled = true;
 
     try {
-      showToast("NBT 上传中…", true);
+      showToast("图片上传中…", true);
       const draftId = createDraftId();
-      const files = {
-        nbt: await uploadWorkshopFile(nbtFile, draftId),
-      };
+      const images = [];
+      for (const f of imageFiles) {
+        const att = await uploadWorkshopFile(f, draftId, "image");
+        if (att) images.push(att);
+      }
+      const files = { images };
+      if (nbtFile) files.nbt = await uploadWorkshopFile(nbtFile, draftId, "nbt");
 
       showToast("投稿提交中…", true);
       await postJson("/api/workshop", {

@@ -288,41 +288,49 @@ function wallTypeLabel(wallType) {
   return "不展示";
 }
 
-// 分区按「Tab 分组 + capability」双重控制
-const ADMIN_TABS = {
-  service: ["preview-access", "feedback-section", "workshop-section"],
-  manage: ["accounts-section", "roles-section", "changelog-section", "mods-section"],
-};
-const SECTION_CAP = {
-  "preview-access": (u) => canAccessPreview(u),
-  "feedback-section": (u) => hasCap("feedback.manage", u),
-  "workshop-section": (u) => hasCap("workshop.review", u),
-  "accounts-section": (u) => hasCap("users.manage", u),
-  "roles-section": (u) => hasCap("roles.configure", u),
-  "changelog-section": (u) => hasCap("changelog.manage", u),
-  "mods-section": (u) => hasCap("mods.manage", u),
-};
-function tabOf(id) { return ADMIN_TABS.service.includes(id) ? "service" : "manage"; }
-function groupHasAny(tab, user = state.me) {
-  return ADMIN_TABS[tab].some((id) => SECTION_CAP[id] && SECTION_CAP[id](user));
+// 后台分区(侧边栏导航,按 capability 显示)
+const ADMIN_SECTIONS = [
+  { id: "feedback-section", label: "反馈处理", can: (u) => hasCap("feedback.manage", u) },
+  { id: "workshop-section", label: "工坊审核", can: (u) => hasCap("workshop.review", u) },
+  { id: "accounts-section", label: "用户管理", can: (u) => hasCap("users.manage", u) },
+  { id: "roles-section", label: "身份组权限", can: (u) => hasCap("roles.configure", u) },
+  { id: "changelog-section", label: "更新日志", can: (u) => hasCap("changelog.manage", u) },
+  { id: "site-section", label: "首页内容", can: (u) => hasCap("changelog.manage", u) },
+  { id: "mods-section", label: "外部MOD", can: (u) => hasCap("mods.manage", u) },
+  { id: "preview-access", label: "内测尝鲜", can: (u) => canAccessPreview(u) },
+];
+
+function availableSections(user = state.me) {
+  return ADMIN_SECTIONS.filter((s) => s.can(user));
 }
 
-function syncPermissionView(user = state.me) {
-  const tab = state.adminTab || "service";
-  for (const [id, allow] of Object.entries(SECTION_CAP)) {
-    const node = el(id);
-    if (node) node.hidden = !(allow(user) && tabOf(id) === tab);
+function setSection(id) {
+  state.adminSection = id;
+  for (const s of ADMIN_SECTIONS) {
+    const node = el(s.id);
+    if (node) node.hidden = s.id !== id;
   }
-  const svc = el("tab-service");
-  const mgmt = el("tab-manage");
-  if (svc) { svc.hidden = !groupHasAny("service", user); svc.classList.toggle("btn--primary", tab === "service"); }
-  if (mgmt) { mgmt.hidden = !groupHasAny("manage", user); mgmt.classList.toggle("btn--primary", tab === "manage"); }
+  document.querySelectorAll("#admin-sidebar [data-section]").forEach((b) => {
+    b.classList.toggle("btn--primary", b.getAttribute("data-section") === id);
+  });
 }
 
-function setAdminTab(tab) {
-  if (!groupHasAny(tab)) return;
-  state.adminTab = tab;
-  syncPermissionView();
+// 渲染侧边栏 + 显示当前分区(保留已选,否则第一个)
+function syncPermissionView(user = state.me) {
+  const sidebar = el("admin-sidebar");
+  const avail = availableSections(user);
+  if (sidebar) {
+    sidebar.innerHTML = avail
+      .map((s) => `<button class="btn" type="button" data-section="${s.id}" style="justify-content:flex-start;width:100%;">${s.label}</button>`)
+      .join("");
+    sidebar.querySelectorAll("[data-section]").forEach((b) => {
+      b.addEventListener("click", () => setSection(b.getAttribute("data-section")));
+    });
+  }
+  const ids = avail.map((s) => s.id);
+  const current = state.adminSection && ids.includes(state.adminSection) ? state.adminSection : ids[0];
+  for (const s of ADMIN_SECTIONS) { const n = el(s.id); if (n) n.hidden = true; }
+  if (current) setSection(current);
 }
 
 function setView(state) {
@@ -1193,6 +1201,38 @@ function setupRolesManager() {
   return { refresh };
 }
 
+function setupSiteConfigManager() {
+  const textarea = el("site-announcements");
+  const saveBtn = el("site-save");
+  if (!(textarea instanceof HTMLTextAreaElement) || !(saveBtn instanceof HTMLButtonElement)) return null;
+
+  async function refresh() {
+    if (!hasCap("changelog.manage")) return;
+    try {
+      const data = await fetchJson("/api/admin/site-config");
+      textarea.value = (data.announcements || []).join("\n");
+    } catch {}
+  }
+
+  saveBtn.addEventListener("click", async () => {
+    const announcements = textarea.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    showToast("site-toast", "保存中…", true);
+    try {
+      const res = await fetch("/api/admin/site-config", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ announcements }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || "保存失败");
+      showToast("site-toast", "已保存,首页公告即时生效。", true);
+    } catch (err) {
+      showToast("site-toast", `保存失败:${err instanceof Error ? err.message : String(err)}`, false);
+    }
+  });
+  return { refresh };
+}
+
 async function boot() {
   const me = await getMe();
   state.me = me;
@@ -1210,19 +1250,11 @@ async function boot() {
   el("me").textContent = `当前登录：${me.displayName || me.username} / ${me.roleName || "游客"} / L${getPermissionLevel(me)}`;
   setView("admin");
 
-  // 初始 Tab:按 URL hash 或权限决定
-  const hash = location.hash;
-  let initialTab = hash === "#manage" ? "manage" : hash === "#feedback" ? "service"
-    : (groupHasAny("manage", me) ? "manage" : "service");
-  if (!groupHasAny(initialTab, me)) initialTab = groupHasAny("service", me) ? "service" : "manage";
-  state.adminTab = initialTab;
-  if (!state.tabsWired) {
-    state.tabsWired = true;
-    const sb = el("tab-service");
-    if (sb) sb.addEventListener("click", () => setAdminTab("service"));
-    const mb = el("tab-manage");
-    if (mb) mb.addEventListener("click", () => setAdminTab("manage"));
-  }
+  // 初始分区:按 URL hash 或第一个可用项
+  const hashSec = (location.hash || "").replace("#", "");
+  if (hashSec === "feedback") state.adminSection = "feedback-section";
+  else if (hashSec === "manage") state.adminSection = "accounts-section";
+  else if (hashSec) state.adminSection = hashSec.endsWith("-section") ? hashSec : `${hashSec}-section`;
   syncPermissionView(me);
 
   if (me.mustChangePassword) {
@@ -1234,6 +1266,10 @@ async function boot() {
     if (!state.modsManager) state.modsManager = setupModsManager();
     if (!state.workshopManager) state.workshopManager = setupWorkshopManager();
     if (!state.changelogManager) state.changelogManager = setupChangelogManager();
+    if (!state.siteManager) state.siteManager = setupSiteConfigManager();
+    if (hasCap("changelog.manage", me) && state.siteManager) {
+      await state.siteManager.refresh();
+    }
     if (!state.rolesManager) state.rolesManager = setupRolesManager();
     if (hasCap("roles.configure", me) && state.rolesManager) {
       await state.rolesManager.refresh();

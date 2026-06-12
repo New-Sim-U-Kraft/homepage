@@ -667,16 +667,10 @@ function setupAccountShortcut(user) {
       return;
     }
 
-    if (canService) {
+    if (canService || canManage) {
       const a = document.createElement("a");
-      a.href = "/admin.html#feedback";
-      a.textContent = "客服台";
-      area.append(a);
-    }
-    if (canManage) {
-      const a = document.createElement("a");
-      a.href = "/admin.html#manage";
-      a.textContent = "管理后台";
+      a.href = "/admin.html";
+      a.textContent = "后台";
       area.append(a);
     }
     const acc = document.createElement("a");
@@ -690,7 +684,10 @@ function setupAccountShortcut(user) {
     avatar.onerror = () => { avatar.onerror = null; avatar.src = "/assets/logo.png"; };
     const name = document.createElement("span");
     name.textContent = user.displayName || user.username;
-    name.style.marginLeft = "6px";
+    name.title = user.displayName || user.username; // 悬停看全名
+    name.style.cssText =
+      "margin-left:6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;" +
+      "white-space:nowrap;display:inline-block;vertical-align:middle;";
     acc.append(avatar, name);
 
     const logout = document.createElement("a");

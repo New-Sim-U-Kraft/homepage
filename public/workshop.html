@@ -139,12 +139,13 @@
             </div>
             <div class="grid grid--2">
               <div class="field">
-                <div class="field__label">NBT 文件</div>
-                <input class="input" id="workshop-file-nbt" type="file" accept=".nbt" required />
+                <div class="field__label">作品图片(必填,可多选,单张 ≤10MB)</div>
+                <input class="input" id="workshop-images" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" multiple required />
               </div>
               <div class="field">
-                <div class="field__label">补充说明</div>
-                <div class="hint" id="workshop-file-hint">只需上传一个 NBT 文件；作品卡片和审核页都会提供 `NBT Viewer` 预览入口。</div>
+                <div class="field__label">NBT 文件(选填)</div>
+                <input class="input" id="workshop-file-nbt" type="file" accept=".nbt" />
+                <div class="hint" id="workshop-file-hint">如有结构文件可一并上传,作品卡片会提供 NBT Viewer 预览入口。</div>
               </div>
             </div>
             <div class="field">
