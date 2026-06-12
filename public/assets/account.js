@@ -1,6 +1,7 @@
 // 账户设置:自助改资料 / 头像 / 密码。
 const el = (id) => document.getElementById(id);
 function toast(id, msg, ok) {
+  if (window.siteToast) window.siteToast(msg, ok ? "success" : "error");
   const t = el(id);
   if (!t) return;
   t.textContent = msg;
@@ -9,7 +10,7 @@ function toast(id, msg, ok) {
 async function api(url, opts) {
   const res = await fetch(url, opts);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.ok === false) throw new Error(data.error || "请求失败");
+  if (!res.ok || data.ok === false) throw new Error((data.error || "请求失败") + (data.ref ? `(错误码 ${data.ref})` : ""));
   return data;
 }
 const json = (url, method, body) => api(url, {

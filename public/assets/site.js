@@ -92,6 +92,40 @@ function __traeDbgEvent(hypothesisId, name, data, location = "public/assets/site
 }
 // #endregion
 
+// ---------- 全局浮动提示弹窗 ----------
+function siteToast(message, type = "info") {
+  if (!document.body) return;
+  let host = document.getElementById("site-toasts");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "site-toasts";
+    host.style.cssText =
+      "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:99999;" +
+      "display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;";
+    document.body.appendChild(host);
+  }
+  const colors = { success: "#16a34a", error: "#dc2626", info: "#2563eb", warn: "#d97706" };
+  const bg = colors[type] || colors.info;
+  const t = document.createElement("div");
+  t.textContent = message;
+  t.style.cssText =
+    `pointer-events:auto;max-width:90vw;padding:10px 16px;border-radius:10px;color:#fff;` +
+    `background:${bg};box-shadow:0 6px 20px rgba(0,0,0,.18);font-size:14px;line-height:1.4;` +
+    `opacity:0;transform:translateY(-8px);transition:opacity .2s ease,transform .2s ease;`;
+  host.appendChild(t);
+  requestAnimationFrame(() => {
+    t.style.opacity = "1";
+    t.style.transform = "translateY(0)";
+  });
+  const ttl = type === "error" ? 4200 : 3000;
+  setTimeout(() => {
+    t.style.opacity = "0";
+    t.style.transform = "translateY(-8px)";
+    setTimeout(() => t.remove(), 260);
+  }, ttl);
+}
+window.siteToast = siteToast;
+
 function readTransitionFlag() {
   try {
     const raw = sessionStorage.getItem(PAGE_TRANSITION_KEY);

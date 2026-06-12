@@ -218,6 +218,16 @@ r.post("/avatar", requireAuth(), async (c) => {
   return c.json({ ok: true, user: await shapePublicUser(c.env, updated) });
 });
 
+// 错误脱敏:屏蔽 SMTP 账号/密码/服务器及邮箱样式,供日志安全打印
+function maskSmtpError(e, env) {
+  let s = String(e);
+  for (const v of [env.SMTP_PASS, env.SMTP_USER, env.SMTP_HOST]) {
+    if (v) s = s.split(v).join("***");
+  }
+  s = s.replace(/[\w.+-]+@[\w.-]+\.\w+/g, "***@***");
+  return s.slice(0, 300);
+}
+
 // ---------- 注册:发送验证码 ----------
 async function sendCodeViaFeishu(env, toEmail, code) {
   const port = parseInt(env.SMTP_PORT || "465", 10);
@@ -266,11 +276,11 @@ r.post("/send-code", async (c) => {
   try {
     await sendCodeViaFeishu(c.env, email, code);
   } catch (e) {
-    console.error("send-code SMTP error:", e);
+    // 真实错误进日志(SMTP 凭据已脱敏),对外只返回模糊提示
+    console.error("[send-code] SMTP 发送失败:", maskSmtpError(e, c.env));
     await c.env.KV.delete(`regcode:${email}`);
     await c.env.KV.delete(`regcd:${email}`);
-    // 临时:暴露错误详情以便排查飞书 SMTP(排查完应去掉 detail)
-    return c.json({ ok: false, error: "发送失败", detail: String(e).slice(0, 300) }, 502);
+    return c.json({ ok: false, error: "验证码发送失败,请稍后重试" }, 502);
   }
   return c.json({ ok: true });
 });

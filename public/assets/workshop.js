@@ -29,7 +29,7 @@ async function fetchJson(url, init) {
     ...(init || {}),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `请求失败：${res.status}`);
+  if (!res.ok) throw new Error((data.error || `请求失败：${res.status}`) + (data.ref ? `(错误码 ${data.ref})` : ""));
   return data;
 }
 
@@ -42,6 +42,7 @@ async function postJson(url, payload) {
 }
 
 function showToast(message, ok) {
+  if (message && window.siteToast) window.siteToast(message, ok ? "success" : "error");
   const toast = el("workshop-toast");
   if (!(toast instanceof HTMLElement)) return;
   toast.textContent = message || "";

@@ -14,7 +14,9 @@ function createDraftId() {
 }
 
 function showToast(message, ok) {
+  if (message && window.siteToast) window.siteToast(message, ok ? "success" : "error");
   const toast = el("toast");
+  if (!toast) return;
   toast.textContent = message;
   toast.classList.toggle("is-show", Boolean(message));
   toast.style.borderColor = ok ? "rgba(34,197,94,0.35)" : "rgba(245,158,11,0.35)";
@@ -27,7 +29,7 @@ async function postJson(url, payload) {
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok || !data.ok) throw new Error((data.error || `HTTP ${res.status}`) + (data.ref ? `(错误码 ${data.ref})` : ""));
   return data;
 }
 
@@ -41,7 +43,7 @@ async function uploadFeedbackFile(kind, draftId, file) {
     body: await file.arrayBuffer(),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok || !data.ok) throw new Error((data.error || `HTTP ${res.status}`) + (data.ref ? `(错误码 ${data.ref})` : ""));
   return data.attachment || null;
 }
 

@@ -21,7 +21,9 @@ const BRANCH_LABELS = {
 };
 
 function showToast(targetId, message, ok) {
+  if (message && window.siteToast) window.siteToast(message, ok ? "success" : "error");
   const toast = el(targetId);
+  if (!toast) return;
   toast.textContent = message;
   toast.classList.toggle("is-show", Boolean(message));
   toast.style.borderColor = ok ? "rgba(34,197,94,0.35)" : "rgba(245,158,11,0.35)";

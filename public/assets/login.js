@@ -1,6 +1,7 @@
 // 专用登录页:登录成功后按身份跳转(员工→后台,普通用户→账户页/首页)。
 const el = (id) => document.getElementById(id);
 function toast(msg, ok) {
+  if (window.siteToast) window.siteToast(msg, ok ? "success" : "error");
   const t = el("login-toast");
   if (!t) return;
   t.textContent = msg;
@@ -25,6 +26,7 @@ if (form) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
         if (res.status === 429) throw new Error("尝试过于频繁,请稍后再试");
+        if (data.ref) throw new Error(`${data.error || "登录失败"}(错误码 ${data.ref})`);
         throw new Error("用户名或密码错误");
       }
       const user = data.user;

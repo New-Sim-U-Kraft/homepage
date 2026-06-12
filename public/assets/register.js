@@ -2,6 +2,7 @@
 const el = (id) => document.getElementById(id);
 
 function toast(msg, ok) {
+  if (window.siteToast) window.siteToast(msg, ok ? "success" : "error");
   const t = el("register-toast");
   if (!t) return;
   t.textContent = msg;
@@ -15,7 +16,7 @@ async function postJson(url, body) {
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok) throw new Error(data.error || "请求失败");
+  if (!res.ok || !data.ok) throw new Error((data.error || "请求失败") + (data.ref ? `(错误码 ${data.ref})` : ""));
   return data;
 }
 
@@ -40,6 +41,7 @@ if (sendBtn) {
     const email = el("reg-email").value.trim();
     if (!email) return toast("请先填写邮箱", false);
     sendBtn.disabled = true;
+    if (window.siteToast) window.siteToast("正在发送验证码…", "info");
     try {
       await postJson("/api/auth/send-code", { email });
       toast("验证码已发送,请查收邮箱(10 分钟内有效)。", true);

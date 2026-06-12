@@ -3,6 +3,10 @@ main = "dist/index.js"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
+# 开启日志(console.error 等可在 dashboard → 该 Worker → Observability/Logs 查看)
+[observability]
+enabled = true
+
 # ---- 静态资源(替代 Pages):public/ 里的 html/css/assets/vendor ----
 # 请求先匹配静态文件;没有匹配的(/api/*、/uploads/* 等)才进 Worker。
 [assets]
