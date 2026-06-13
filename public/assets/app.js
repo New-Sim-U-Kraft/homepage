@@ -189,6 +189,26 @@ async function loadAnnouncements() {
   }
 }
 
+async function loadFeatures() {
+  const grid = el("features-grid");
+  if (!grid) return;
+  try {
+    const data = await fetchJson("/api/features");
+    const features = Array.isArray(data.features) ? data.features : [];
+    if (features.length === 0) return; // 未配置 → 保留页面静态默认卡
+    grid.innerHTML = features
+      .map(
+        (f) =>
+          `<div class="card">` +
+          `<div class="card__icon">${escapeHtml(f.icon || "")}</div>` +
+          `<div class="card__title">${escapeHtml(f.title || "")}</div>` +
+          `<div class="card__desc">${escapeHtml(f.desc || "")}</div>` +
+          `</div>`,
+      )
+      .join("");
+  } catch {}
+}
+
 function startMarquee(container, inner) {
   if (!container || !inner) return;
   let last = performance.now();
@@ -552,6 +572,7 @@ setupHistoryToggle();
 const modalApi = setupModal();
 setupHeroTagPanel();
 await loadAnnouncements();
+await loadFeatures();
 await loadBranchesAndMods();
 await loadCarousel(modalApi);
 await loadScreenshotGrid(modalApi);

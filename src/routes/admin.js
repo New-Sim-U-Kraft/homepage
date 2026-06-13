@@ -266,21 +266,35 @@ r.delete("/mods/external", requireCap(CAPS.MODS_MANAGE), async (c) => {
 });
 
 // ============ 首页内容(公告等) ============
+async function readSiteConfig(env, key) {
+  const row = await env.DB.prepare("SELECT value FROM site_config WHERE key=?").bind(key).first();
+  if (!row) return [];
+  try { const a = JSON.parse(row.value); return Array.isArray(a) ? a : []; } catch { return []; }
+}
 r.get("/site-config", requireCap(CAPS.CHANGELOG_MANAGE), async (c) => {
-  const row = await c.env.DB.prepare("SELECT value FROM site_config WHERE key='announcements'").first();
-  let announcements = [];
-  if (row) { try { announcements = JSON.parse(row.value); } catch {} }
-  return c.json({ ok: true, announcements: Array.isArray(announcements) ? announcements : [] });
+  return c.json({
+    ok: true,
+    announcements: await readSiteConfig(c.env, "announcements"),
+    features: await readSiteConfig(c.env, "features"),
+  });
 });
 r.put("/site-config", requireCap(CAPS.CHANGELOG_MANAGE), async (c) => {
   const actor = c.get("user");
   const body = await c.req.json().catch(() => ({}));
   const announcements = Array.isArray(body.announcements)
     ? body.announcements.map((s) => String(s).trim()).filter(Boolean).slice(0, 50) : [];
+  const features = Array.isArray(body.features)
+    ? body.features.map((f) => ({
+        icon: String(f?.icon ?? "").trim().slice(0, 8),
+        title: String(f?.title ?? "").trim().slice(0, 20),
+        desc: String(f?.desc ?? "").trim().slice(0, 120),
+      })).filter((f) => f.title || f.desc).slice(0, 12) : [];
   await c.env.DB.prepare("INSERT OR REPLACE INTO site_config (key, value) VALUES ('announcements', ?)")
     .bind(JSON.stringify(announcements)).run();
-  await audit(c.env, actor.username, "site.config", "announcements", { count: announcements.length });
-  return c.json({ ok: true, announcements });
+  await c.env.DB.prepare("INSERT OR REPLACE INTO site_config (key, value) VALUES ('features', ?)")
+    .bind(JSON.stringify(features)).run();
+  await audit(c.env, actor.username, "site.config", "homepage", { announcements: announcements.length, features: features.length });
+  return c.json({ ok: true, announcements, features });
 });
 
 // ============ 工坊审核 ============

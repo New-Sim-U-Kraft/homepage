@@ -484,38 +484,53 @@ function setupUsersManager() {
     });
   }
 
+  let allUsers = [];
+  const onDelete = async (item) => {
+    const ok = window.confirm(`确认删除账户 ${item.displayName || item.username} 吗？删除后会同步从墙面移除。`);
+    if (!ok) return;
+    showToast("user-toast", "删除中…", true);
+    try {
+      await deleteJson(`/api/admin/users/${encodeURIComponent(item.username || "")}`);
+      await refresh();
+      if (state.changelogManager) void state.changelogManager.refresh();
+      showToast("user-toast", "账户已删除，首页墙面会同步更新。", true);
+    } catch (err) {
+      showToast("user-toast", `删除失败：${err instanceof Error ? err.message : String(err)}`, false);
+    }
+  };
+  const onRoleChange = async (item, roleKey) => {
+    showToast("user-toast", "身份更新中…", true);
+    try {
+      await patchJson(`/api/admin/users/${encodeURIComponent(item.username || "")}/role`, { roleKey });
+      await refresh();
+      showToast("user-toast", `已将 ${item.displayName || item.username} 设为新身份。`, true);
+    } catch (err) {
+      showToast("user-toast", `身份变更失败：${err instanceof Error ? err.message : String(err)}`, false);
+      await refresh();
+    }
+  };
+  function renderFiltered() {
+    const q = (el("user-search")?.value || "").trim().toLowerCase();
+    const filtered = q
+      ? allUsers.filter(
+          (u) =>
+            (u.username || "").toLowerCase().includes(q) ||
+            (u.displayName || "").toLowerCase().includes(q) ||
+            (u.qq || "").toLowerCase().includes(q),
+        )
+      : allUsers;
+    renderUserItems(filtered, onDelete, onRoleChange);
+  }
+  const userSearch = el("user-search");
+  if (userSearch instanceof HTMLInputElement) {
+    userSearch.addEventListener("input", () => renderFiltered());
+  }
+
   async function refresh() {
     if (!hasCap("users.manage")) return;
     const data = await fetchJson("/api/admin/users");
-    renderUserItems(
-      Array.isArray(data.items) ? data.items : [],
-      async (item) => {
-        const ok = window.confirm(`确认删除账户 ${item.displayName || item.username} 吗？删除后会同步从墙面移除。`);
-        if (!ok) return;
-        showToast("user-toast", "删除中…", true);
-        try {
-          await deleteJson(`/api/admin/users/${encodeURIComponent(item.username || "")}`);
-          await refresh();
-          if (state.changelogManager) {
-            void state.changelogManager.refresh();
-          }
-          showToast("user-toast", "账户已删除，首页墙面会同步更新。", true);
-        } catch (err) {
-          showToast("user-toast", `删除失败：${err instanceof Error ? err.message : String(err)}`, false);
-        }
-      },
-      async (item, roleKey) => {
-        showToast("user-toast", "身份更新中…", true);
-        try {
-          await patchJson(`/api/admin/users/${encodeURIComponent(item.username || "")}/role`, { roleKey });
-          await refresh();
-          showToast("user-toast", `已将 ${item.displayName || item.username} 设为新身份。`, true);
-        } catch (err) {
-          showToast("user-toast", `身份变更失败：${err instanceof Error ? err.message : String(err)}`, false);
-          await refresh();
-        }
-      },
-    );
+    allUsers = Array.isArray(data.items) ? data.items : [];
+    renderFiltered();
   }
 
   form.addEventListener("submit", async (event) => {
@@ -1204,28 +1219,61 @@ function setupRolesManager() {
 function setupSiteConfigManager() {
   const textarea = el("site-announcements");
   const saveBtn = el("site-save");
+  const featuresWrap = el("site-features");
+  const addBtn = el("site-feature-add");
   if (!(textarea instanceof HTMLTextAreaElement) || !(saveBtn instanceof HTMLButtonElement)) return null;
+
+  function addFeatureRow(f = {}) {
+    if (!(featuresWrap instanceof HTMLElement)) return;
+    const row = document.createElement("div");
+    row.className = "site-feature-row";
+    row.style.cssText = "display:grid;grid-template-columns:64px 1fr 2fr auto;gap:8px;align-items:center;";
+    row.innerHTML =
+      `<input class="input" data-f="icon" maxlength="8" placeholder="图标" value="${escapeHtml(f.icon || "")}" />` +
+      `<input class="input" data-f="title" maxlength="20" placeholder="标题" value="${escapeHtml(f.title || "")}" />` +
+      `<input class="input" data-f="desc" maxlength="120" placeholder="描述" value="${escapeHtml(f.desc || "")}" />` +
+      `<button class="btn btn--ghost" type="button" data-f-remove="1">移除</button>`;
+    const rm = row.querySelector("[data-f-remove]");
+    if (rm) rm.addEventListener("click", () => row.remove());
+    featuresWrap.appendChild(row);
+  }
+  function collectFeatures() {
+    if (!(featuresWrap instanceof HTMLElement)) return [];
+    return [...featuresWrap.querySelectorAll(".site-feature-row")]
+      .map((row) => ({
+        icon: (row.querySelector('[data-f="icon"]')?.value || "").trim(),
+        title: (row.querySelector('[data-f="title"]')?.value || "").trim(),
+        desc: (row.querySelector('[data-f="desc"]')?.value || "").trim(),
+      }))
+      .filter((f) => f.title || f.desc);
+  }
+  if (addBtn instanceof HTMLButtonElement) addBtn.addEventListener("click", () => addFeatureRow());
 
   async function refresh() {
     if (!hasCap("changelog.manage")) return;
     try {
       const data = await fetchJson("/api/admin/site-config");
       textarea.value = (data.announcements || []).join("\n");
+      if (featuresWrap instanceof HTMLElement) {
+        featuresWrap.innerHTML = "";
+        (data.features || []).forEach((f) => addFeatureRow(f));
+      }
     } catch {}
   }
 
   saveBtn.addEventListener("click", async () => {
     const announcements = textarea.value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const features = collectFeatures();
     showToast("site-toast", "保存中…", true);
     try {
       const res = await fetch("/api/admin/site-config", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ announcements }),
+        body: JSON.stringify({ announcements, features }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.error || "保存失败");
-      showToast("site-toast", "已保存,首页公告即时生效。", true);
+      showToast("site-toast", "已保存,首页即时生效。", true);
     } catch (err) {
       showToast("site-toast", `保存失败:${err instanceof Error ? err.message : String(err)}`, false);
     }

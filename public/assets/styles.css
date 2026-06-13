@@ -1066,12 +1066,12 @@ a {
 
 /* 亮色主题:卡片/面板里的 ghost 按钮原本是白字白底(为深色背景设计),在白卡片上看不见。
    这里改成深色文字 + 可见边框。仅限内容卡片,不影响深色 hero 上的按钮。 */
-[data-theme="light"] :is(.panel, .card, .workshop-card) .btn--ghost {
+[data-theme="light"] :is(.panel, .card, .workshop-card, .section) .btn--ghost {
   background: rgba(0, 0, 0, 0.04);
   color: var(--text);
   border-color: var(--line);
 }
-[data-theme="light"] :is(.panel, .card, .workshop-card) .btn--ghost:hover {
+[data-theme="light"] :is(.panel, .card, .workshop-card, .section) .btn--ghost:hover {
   background: rgba(0, 0, 0, 0.08);
   border-color: rgba(0, 0, 0, 0.24);
 }

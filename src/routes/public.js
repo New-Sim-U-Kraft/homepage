@@ -46,6 +46,18 @@ r.get("/announcements", async (c) => {
   }
 });
 
+// 1b. 首页特色卡片(后台可配,未配置返回空 → 前端保留静态默认)
+r.get("/features", async (c) => {
+  try {
+    const row = await c.env.DB.prepare("SELECT value FROM site_config WHERE key='features'").first();
+    if (row) {
+      const arr = JSON.parse(row.value);
+      if (Array.isArray(arr)) return c.json({ features: arr });
+    }
+  } catch {}
+  return c.json({ features: [] });
+});
+
 // 2. 分支(按用户等级过滤 sponsor)
 r.get("/branches", async (c) => {
   const user = await resolveUser(c);
