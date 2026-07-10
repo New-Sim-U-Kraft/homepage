@@ -288,8 +288,14 @@ function hidePageTransition() {
     // #endregion
     window.setTimeout(() => {
       const nestedClassNameBefore = overlay.className;
+      // 从 is-leaving(下移出屏) 复位到 is-hidden(上移出屏) 时禁用过渡,
+      // 否则遮罩会带着背景色从底部滑到顶部穿过整屏,造成"背景色页面向上滑动"的观感。
+      const prevTransition = overlay.style.transition;
+      overlay.style.transition = "none";
       overlay.classList.add("is-hidden");
       overlay.classList.remove("is-leaving", "is-spinning");
+      void overlay.offsetHeight;
+      overlay.style.transition = prevTransition;
       // #region debug-point C:hidden
       __traeDbgEvent("C", "pageTransition:hidden", {
         classNameBefore: nestedClassNameBefore,
@@ -673,10 +679,12 @@ function setupAccountShortcut(user) {
       a.textContent = "后台";
       area.append(a);
     }
+    // 头像 -> 个人主页(展示页);名字 -> 账户设置。两个入口分别指向不同页面。
+    const profileHref = `/profile.html?user=${encodeURIComponent(user.username)}`;
     const acc = document.createElement("a");
-    acc.href = "/account.html";
+    acc.href = profileHref;
     acc.className = "nav__account";
-    acc.title = "账户设置";
+    acc.title = "查看个人主页";
     const avatar = document.createElement("img");
     avatar.className = "nav__account-avatar";
     avatar.src = user.avatar || "/assets/logo.png";
@@ -689,7 +697,7 @@ function setupAccountShortcut(user) {
     name.href = "/account.html";
     name.className = "nav__account-name";
     name.textContent = user.displayName || user.username;
-    name.title = user.displayName || user.username;
+    name.title = "账户设置";
 
     const logout = document.createElement("a");
     logout.href = "#";

@@ -533,9 +533,15 @@ async function loadScreenshotGrid(modalApi) {
 function setupHeroTagPanel() {
   const tab = el("hero-tab");
   if (!(tab instanceof HTMLElement)) return;
+  const media = tab.closest(".hero__inner--media");
 
   function sync() {
-    tab.classList.toggle("is-hidden-by-scroll", window.scrollY > 140);
+    const tabHidden = window.scrollY > 140;
+    tab.classList.toggle("is-hidden-by-scroll", tabHidden);
+    // 浮层隐藏后,底部按钮栏回到居中;浮层覆盖时按钮保持左移(见 CSS)。
+    if (media instanceof HTMLElement) {
+      media.classList.toggle("is-tab-clear", tabHidden);
+    }
   }
 
   sync();

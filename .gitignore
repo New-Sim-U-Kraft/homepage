@@ -13,3 +13,4 @@ scripts/seed-content.sql
 #   src/generated/mc-blocks.js   (方块元数据)
 #   public/vendor/mc/**          (原版纹理)
 # 提交前先确保它们已由 node scripts/export-mc-assets.mjs 生成。
+/.playwright-mcp
