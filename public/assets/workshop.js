@@ -92,14 +92,14 @@ function normalizeLinkValue(value) {
 function renderNbtButtons(item) {
   const nbtFile = item?.files?.nbt || null;
   if (!nbtFile?.url) return `<div class="hint">暂无 NBT 文件</div>`;
-  const buttons = [
-    `<a class="btn btn--ghost" href="${escapeHtml(nbtFile.url)}" target="_blank" rel="noreferrer">NBT${nbtFile.size ? ` · ${escapeHtml(formatBytes(nbtFile.size))}` : ""}</a>`,
-  ];
+  // 官网只提供在线预览,不提供 NBT 直接下载;下载走作品外链。
+  const buttons = [];
   if (item?.nbtViewerUrl) {
     buttons.push(
-      `<a class="btn btn--ghost" href="${escapeHtml(item.nbtViewerUrl)}" target="_blank" rel="noreferrer">NBT Viewer 预览</a>`,
+      `<a class="btn btn--ghost" href="${escapeHtml(item.nbtViewerUrl)}" target="_blank" rel="noreferrer">NBT Viewer 在线预览${nbtFile.size ? ` · ${escapeHtml(formatBytes(nbtFile.size))}` : ""}</a>`,
     );
   }
+  buttons.push(`<span class="hint">下载请使用下方外链</span>`);
   return buttons.join("");
 }
 
@@ -392,8 +392,19 @@ function bindEvents() {
       showToast("单张图片不能超过 10MB。", false);
       return;
     }
+    // 官网只提供在线预览:NBT 文件与站外下载链接均为必填。
+    if (!nbtFile) {
+      showToast("请上传 NBT 结构文件(仅用于在线预览)。", false);
+      return;
+    }
+    const downloadUrlInput = el("workshop-download-url");
+    const downloadUrl = downloadUrlInput instanceof HTMLInputElement ? downloadUrlInput.value.trim() : "";
+    if (!/^https?:\/\/\S+/i.test(downloadUrl)) {
+      showToast("请填写有效的站外下载链接(以 http:// 或 https:// 开头)。", false);
+      return;
+    }
 
-    const externalLinks = collectExternalLinks();
+    const externalLinks = [{ label: "下载地址", url: downloadUrl }, ...collectExternalLinks()];
     const submitButton = form.querySelector('button[type="submit"]');
     if (submitButton instanceof HTMLButtonElement) submitButton.disabled = true;
 
@@ -435,11 +446,59 @@ function bindEvents() {
   });
 }
 
+function setupFilePickers() {
+  const form = el("workshop-form");
+  document.querySelectorAll("[data-filepick-for]").forEach((btn) => {
+    if (!(btn instanceof HTMLElement)) return;
+    const id = btn.dataset.filepickFor || "";
+    const input = document.getElementById(id);
+    const nameEl = document.querySelector(`[data-filepick-name="${id}"]`);
+    if (!(input instanceof HTMLInputElement)) return;
+
+    const empty = nameEl instanceof HTMLElement ? nameEl.dataset.filepickEmpty || "未选择文件" : "";
+    const render = () => {
+      if (!(nameEl instanceof HTMLElement)) return;
+      const files = input.files ? Array.from(input.files) : [];
+      if (files.length === 0) {
+        nameEl.textContent = empty;
+        nameEl.classList.remove("is-selected");
+        nameEl.removeAttribute("title");
+        return;
+      }
+      const names = files.map((f) => f.name);
+      const text = files.length === 1 ? names[0] : `已选择 ${files.length} 个文件：${names.join("，")}`;
+      nameEl.textContent = text;
+      nameEl.title = names.join("\n");
+      nameEl.classList.add("is-selected");
+    };
+
+    btn.addEventListener("click", () => input.click());
+    input.addEventListener("change", render);
+    render();
+  });
+
+  // 表单重置(投稿成功后 form.reset())时,把文件名标签一起复位。
+  if (form instanceof HTMLFormElement) {
+    form.addEventListener("reset", () => {
+      // reset 后 input.files 在下一帧才清空,延后再渲染。
+      setTimeout(() => {
+        document.querySelectorAll("[data-filepick-name]").forEach((nameEl) => {
+          if (!(nameEl instanceof HTMLElement)) return;
+          nameEl.textContent = nameEl.dataset.filepickEmpty || "未选择文件";
+          nameEl.classList.remove("is-selected");
+          nameEl.removeAttribute("title");
+        });
+      }, 0);
+    });
+  }
+}
+
 async function boot() {
   await waitForPageTransition;
   await Promise.all([loadCategories(), loadMe()]);
   ensureAtLeastOneLinkRow();
   bindEvents();
+  setupFilePickers();
   await Promise.all([loadApprovedItems(), loadMineItems()]);
 }
 

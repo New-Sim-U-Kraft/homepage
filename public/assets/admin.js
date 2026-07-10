@@ -12,6 +12,7 @@ const state = {
   usersManager: null,
   changelogManager: null,
   workshopManager: null,
+  wallManager: null,
 };
 
 const BRANCH_LABELS = {
@@ -295,7 +296,7 @@ const ADMIN_SECTIONS = [
   { id: "accounts-section", label: "用户管理", can: (u) => hasCap("users.manage", u) },
   { id: "roles-section", label: "身份组权限", can: (u) => hasCap("roles.configure", u) },
   { id: "changelog-section", label: "更新日志", can: (u) => hasCap("changelog.manage", u) },
-  { id: "site-section", label: "首页内容", can: (u) => hasCap("changelog.manage", u) },
+  { id: "site-section", label: "首页配置", can: (u) => hasCap("changelog.manage", u) || hasCap("users.manage", u) },
   { id: "mods-section", label: "外部MOD", can: (u) => hasCap("mods.manage", u) },
   { id: "preview-access", label: "内测尝鲜", can: (u) => canAccessPreview(u) },
 ];
@@ -1216,12 +1217,105 @@ function setupRolesManager() {
   return { refresh };
 }
 
+// 首页配置分区里的墙面管理:调整账户 wallType,首页开发者墙/赞助者墙即时同步。
+function setupWallManager() {
+  const wrap = el("site-walls");
+  const table = el("site-walls-table");
+  const search = el("site-wall-search");
+  if (!(wrap instanceof HTMLElement) || !(table instanceof HTMLTableElement)) return null;
+  if (!hasCap("users.manage")) {
+    wrap.hidden = true;
+    return null;
+  }
+  wrap.hidden = false;
+
+  const WALL_OPTIONS = [
+    { key: "none", label: "不展示" },
+    { key: "developer", label: "开发者墙" },
+    { key: "sponsor", label: "赞助者墙" },
+  ];
+  let allUsers = [];
+
+  function render() {
+    const tbody = table.querySelector("tbody");
+    if (!(tbody instanceof HTMLTableSectionElement)) return;
+    const q = (search instanceof HTMLInputElement ? search.value : "").trim().toLowerCase();
+    const items = q
+      ? allUsers.filter(
+          (u) =>
+            (u.username || "").toLowerCase().includes(q) ||
+            (u.displayName || "").toLowerCase().includes(q),
+        )
+      : allUsers;
+    tbody.innerHTML = "";
+    const actorLevel = Number(state.me?.level || 0);
+    for (const item of items) {
+      const manageable = Number(item.level || 0) < actorLevel && item.username !== state.me?.username;
+      const tr = document.createElement("tr");
+      const select = manageable
+        ? `<select class="select" data-wall-user="${escapeHtml(item.username || "")}">${WALL_OPTIONS.map(
+            (o) => `<option value="${o.key}"${o.key === (item.wallType || "none") ? " selected" : ""}>${o.label}</option>`,
+          ).join("")}</select>`
+        : `<span class="hint">${escapeHtml(wallTypeLabel(item.wallType))}(无权调整)</span>`;
+      const cells = [
+        `<img src="${escapeHtml(item.avatar || "/assets/logo.png")}" alt="${escapeHtml(item.displayName || item.username || "")}头像" style="width:28px;height:28px;border-radius:8px;object-fit:cover;border:1px solid rgba(255,255,255,0.12);" onerror="this.onerror=null;this.src='/assets/logo.png';" />`,
+        escapeHtml(item.displayName || item.username || "—"),
+        escapeHtml(item.username || "—"),
+        escapeHtml(`${item.roleName || "游客"} / L${item.level ?? 0}`),
+        select,
+      ];
+      cells.forEach((html) => {
+        const td = document.createElement("td");
+        td.innerHTML = html;
+        tr.appendChild(td);
+      });
+      const sel = tr.querySelector("[data-wall-user]");
+      if (sel instanceof HTMLSelectElement) {
+        sel.addEventListener("change", async () => {
+          showToast("site-wall-toast", "墙面更新中…", true);
+          try {
+            await patchJson(`/api/admin/users/${encodeURIComponent(item.username || "")}/role`, {
+              roleKey: item.roleKey,
+              wallType: sel.value,
+            });
+            item.wallType = sel.value;
+            showToast("site-wall-toast", `已将 ${item.displayName || item.username} 的墙面设为「${wallTypeLabel(sel.value)}」。`, true);
+          } catch (err) {
+            showToast("site-wall-toast", `墙面更新失败：${err instanceof Error ? err.message : String(err)}`, false);
+            await refresh();
+          }
+        });
+      }
+      tbody.appendChild(tr);
+    }
+  }
+
+  if (search instanceof HTMLInputElement) {
+    search.addEventListener("input", () => render());
+  }
+
+  async function refresh() {
+    if (!hasCap("users.manage")) return;
+    try {
+      const data = await fetchJson("/api/admin/users");
+      allUsers = Array.isArray(data.items) ? data.items : [];
+      render();
+    } catch {}
+  }
+  return { refresh };
+}
+
 function setupSiteConfigManager() {
   const textarea = el("site-announcements");
   const saveBtn = el("site-save");
   const featuresWrap = el("site-features");
   const addBtn = el("site-feature-add");
   if (!(textarea instanceof HTMLTextAreaElement) || !(saveBtn instanceof HTMLButtonElement)) return null;
+  // 只有拥有 changelog.manage 才能读写公告/卡片;否则隐藏该面板(墙面管理由 setupWallManager 单独控制)。
+  const configPanel = textarea.closest(".panel");
+  if (!hasCap("changelog.manage") && configPanel instanceof HTMLElement) {
+    configPanel.hidden = true;
+  }
 
   function addFeatureRow(f = {}) {
     if (!(featuresWrap instanceof HTMLElement)) return;
@@ -1317,6 +1411,10 @@ async function boot() {
     if (!state.siteManager) state.siteManager = setupSiteConfigManager();
     if (hasCap("changelog.manage", me) && state.siteManager) {
       await state.siteManager.refresh();
+    }
+    if (!state.wallManager) state.wallManager = setupWallManager();
+    if (hasCap("users.manage", me) && state.wallManager) {
+      await state.wallManager.refresh();
     }
     if (!state.rolesManager) state.rolesManager = setupRolesManager();
     if (hasCap("roles.configure", me) && state.rolesManager) {

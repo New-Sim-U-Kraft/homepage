@@ -7,6 +7,15 @@ import {
 } from "../lib/auth.js";
 import { loadUser, shapePublicUser, getCookie, resolveUser, defaultAvatar, isValidQQ, requireAuth } from "../lib/rbac.js";
 import { nowIso, isValidImageFileName } from "../lib/content.js";
+import { buildUserHomepageProfile, DEFAULT_USER_COVER } from "../lib/profiles.js";
+
+// 现网 D1 可能还没有 users.cover 列;每个 isolate 首次用到时守卫式补列(重复执行会抛"duplicate column",忽略即可)。
+let coverColumnReady = false;
+async function ensureCoverColumn(env) {
+  if (coverColumnReady) return;
+  try { await env.DB.prepare("ALTER TABLE users ADD COLUMN cover TEXT DEFAULT ''").run(); } catch {}
+  coverColumnReady = true;
+}
 
 function imgType(name) {
   const ext = name.toLowerCase().split(".").pop();
@@ -216,6 +225,40 @@ r.post("/avatar", requireAuth(), async (c) => {
   await c.env.DB.prepare("UPDATE users SET avatar=?, updated_at=? WHERE username=?").bind(url, nowIso(), user.username).run();
   const updated = await loadUser(c.env, user.username);
   return c.json({ ok: true, user: await shapePublicUser(c.env, updated) });
+});
+
+// 自助上传个人主页背景(封面)。存到 uploads/users/<username>/cover/ 下,单文件。
+r.post("/cover", requireAuth(), async (c) => {
+  const user = c.get("user");
+  await ensureCoverColumn(c.env);
+  const fileName = decodeURIComponent(c.req.header("x-file-name") || "").trim();
+  if (!isValidImageFileName(fileName)) return c.json({ ok: false, error: "无效背景图片" }, 400);
+  const buf = await c.req.arrayBuffer();
+  if (!buf || buf.byteLength === 0) return c.json({ ok: false, error: "背景图片为空" }, 400);
+  if (buf.byteLength > 20 * 1024 * 1024) return c.json({ ok: false, error: "背景图片不能超过 20MB" }, 400);
+  try {
+    const listed = await c.env.R2.list({ prefix: `uploads/users/${user.username}/cover/` });
+    for (const o of listed.objects || []) await c.env.R2.delete(o.key);
+  } catch {}
+  const key = `uploads/users/${user.username}/cover/${fileName}`;
+  await c.env.R2.put(key, buf, { httpMetadata: { contentType: imgType(fileName) } });
+  const url = `/uploads/users/${encodeURIComponent(user.username)}/cover/${encodeURIComponent(fileName)}`;
+  await c.env.DB.prepare("UPDATE users SET cover=?, updated_at=? WHERE username=?").bind(url, nowIso(), user.username).run();
+  const updated = await loadUser(c.env, user.username);
+  return c.json({ ok: true, profile: buildUserHomepageProfile(updated), user: await shapePublicUser(c.env, updated) });
+});
+
+// 恢复默认背景。
+r.delete("/cover", requireAuth(), async (c) => {
+  const user = c.get("user");
+  await ensureCoverColumn(c.env);
+  try {
+    const listed = await c.env.R2.list({ prefix: `uploads/users/${user.username}/cover/` });
+    for (const o of listed.objects || []) await c.env.R2.delete(o.key);
+  } catch {}
+  await c.env.DB.prepare("UPDATE users SET cover=?, updated_at=? WHERE username=?").bind("", nowIso(), user.username).run();
+  const updated = await loadUser(c.env, user.username);
+  return c.json({ ok: true, profile: buildUserHomepageProfile(updated), user: await shapePublicUser(c.env, updated) });
 });
 
 // 错误脱敏:屏蔽 SMTP 账号/密码/服务器及邮箱样式,供日志安全打印

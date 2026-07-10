@@ -48,9 +48,14 @@ r.post("/", requireAuth(), async (c) => {
   if (!title || !description) return c.json({ ok: false, error: "请填写作品名称和描述介绍" }, 400);
   const files = sanitizeWorkshopFiles(body.files, category, draftId);
   if (!files) return c.json({ ok: false, error: "请至少上传一张作品图片" }, 400);
+  // 官网只提供 NBT 在线预览,不提供站内下载:投稿必须带 NBT 文件 + 至少一条站外下载链接。
+  if (!files.nbt) return c.json({ ok: false, error: "请上传 NBT 结构文件(仅用于在线预览)" }, 400);
   const externalLinks = sanitizeWorkshopExternalLinks(body.externalLinks);
   if (Array.isArray(body.externalLinks) && body.externalLinks.length && externalLinks.length === 0) {
     return c.json({ ok: false, error: "外链格式无效,请检查链接地址" }, 400);
+  }
+  if (externalLinks.length === 0) {
+    return c.json({ ok: false, error: "请填写作品的站外下载链接" }, 400);
   }
 
   const id = randomId();

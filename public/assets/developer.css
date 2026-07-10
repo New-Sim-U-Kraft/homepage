@@ -170,6 +170,22 @@ main,
   background: var(--profile-cover-overlay);
 }
 
+/* 个人主页背景自助更换控件(仅本人可见),放在封面左上角,避开右上角的所有者菜单。 */
+.user-cover-control {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.user-cover-control .btn {
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
 .profile-cover img {
   width: 100%;
   height: 100%;

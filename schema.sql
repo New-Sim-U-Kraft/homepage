@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS users (
   aliases              TEXT DEFAULT '[]',
   avatar               TEXT DEFAULT '/assets/logo.png',
   intro                TEXT DEFAULT '',
+  cover                TEXT DEFAULT '',
   developer_slug       TEXT DEFAULT '',
   created_at           TEXT,
   updated_at           TEXT,

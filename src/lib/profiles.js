@@ -1,6 +1,9 @@
 // 开发者主页 / 用户主页 / 展示墙 构建器。忠实移植 server.js 的 profile 形状。
 import { roleBadge, normalizeWallType, sanitizeIntro, sanitizeAvatar, levelOf } from "./rbac.js";
 
+// 用户主页默认背景:清晰的站点大图(而不是被拉伸糊掉的 logo)。
+export const DEFAULT_USER_COVER = "/assets/hero-bottom.png";
+
 const THEME_PRESETS = new Set(["custom", "starry", "gothic", "cream", "bluewhite"]);
 const FONT_PRESETS = new Set(["default", "shoujin", "heiti", "songti", "kaiti", "yuanti"]);
 const RADAR_KEYS = ["ideas", "innovation", "logic", "tech", "service", "engagement"];
@@ -118,6 +121,7 @@ export function buildUserHomepageProfile(userRow) {
   const displayName = userRow.display_name || userRow.username;
   const links = [{ label: "返回官网", url: "/" }];
   if (level >= 2) links.push({ label: "管理后台", url: "/admin.html" });
+  const cover = (typeof userRow.cover === "string" && userRow.cover.trim()) ? userRow.cover.trim() : DEFAULT_USER_COVER;
   const sanitized = sanitizeDeveloperProfile({
     slug: userRow.username,
     sourceType: "account",
@@ -125,7 +129,7 @@ export function buildUserHomepageProfile(userRow) {
     role: `${badge.label}账户主页`,
     qq: userRow.qq ?? "",
     avatar: sanitizeAvatar(userRow.avatar),
-    cover: "/assets/logo.png",
+    cover,
     headline: intro || `${badge.label}账户主页`,
     quote: `${displayName} 的个人主页`,
     bio: intro || `${displayName} 当前身份为 ${badge.label}。`,

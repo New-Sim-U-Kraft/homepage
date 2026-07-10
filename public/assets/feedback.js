@@ -79,6 +79,75 @@ function mergePickedFiles(current, incoming) {
   return [...map.values()];
 }
 
+function formatFeedbackDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function renderMyFeedback(items) {
+  const list = el("feedback-mine-list");
+  if (!list) return;
+  if (!Array.isArray(items) || items.length === 0) {
+    list.innerHTML =
+      '<div class="history__item"><div class="history__left"><div class="history__name">还没有反馈记录</div>' +
+      '<div class="hint">提交反馈后会显示在这里。</div></div></div>';
+    return;
+  }
+  list.innerHTML = items
+    .map((item) => {
+      const typeLabel = item.type === "bug" ? "Bug 反馈" : "建议";
+      const statusLabel = item.resolved ? "已处理" : "待处理";
+      const statusColor = item.resolved ? "#16a34a" : "#d97706";
+      const date = formatFeedbackDate(item.createdAt);
+      const title = String(item.title || "（无标题）");
+      const content = String(item.content || "");
+      const esc = (s) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const versions = [item.gameVersion, item.modVersion].filter(Boolean).join(" / ");
+      const attach = (item.images?.length || 0) + (item.files?.length || 0);
+      const metaBits = [
+        `<span>${typeLabel}</span>`,
+        date ? `<span>${esc(date)}</span>` : "",
+        versions ? `<span>${esc(versions)}</span>` : "",
+        attach ? `<span>附件 ${attach}</span>` : "",
+        `<span style="color:${statusColor};font-weight:700;">${statusLabel}</span>`,
+      ].filter(Boolean).join("");
+      return (
+        '<div class="history__item history__item--stack">' +
+        '<div class="history__left">' +
+        `<div class="history__name">${esc(title)}</div>` +
+        (content ? `<div class="hint" style="white-space:pre-wrap;">${esc(content)}</div>` : "") +
+        `<div class="history__meta">${metaBits}</div>` +
+        "</div></div>"
+      );
+    })
+    .join("");
+}
+
+async function loadMyFeedback() {
+  const section = el("feedback-mine-section");
+  if (!section) return;
+  try {
+    const res = await fetch("/api/feedback/mine", { cache: "no-store" });
+    if (res.status === 401) {
+      section.hidden = true;
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      section.hidden = true;
+      return;
+    }
+    section.hidden = false;
+    renderMyFeedback(data.items || []);
+  } catch {
+    section.hidden = true;
+  }
+}
+
 const form = el("form");
 const typeInput = el("feedback-type");
 const titleInput = el("title-input");
@@ -192,6 +261,8 @@ bindDropzone(bugImageDropzone, bugImageInput, "image");
 bindDropzone(bugFileDropzone, bugFileInput, "file");
 syncTypeView();
 renderPickedFiles();
+void loadMyFeedback();
+window.addEventListener("site:auth-changed", () => void loadMyFeedback());
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -222,6 +293,7 @@ form.addEventListener("submit", async (e) => {
     await postJson("/api/feedback", payload);
     resetFormState();
     showToast("提交成功，感谢反馈！", true);
+    void loadMyFeedback();
   } catch (err) {
     showToast(`提交失败：${err instanceof Error ? err.message : String(err)}`, false);
   } finally {

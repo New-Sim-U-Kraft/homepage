@@ -19,7 +19,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260612-02" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260710-02" />
   </head>
   <body>
     <div class="page-transition is-hidden" id="page-transition" aria-hidden="true">
@@ -223,7 +223,7 @@
             <div class="field" style="margin-top: 12px; max-width: 320px;">
               <input class="input" id="user-search" placeholder="搜索账户名 / 名称" />
             </div>
-            <div style="overflow: auto; margin-top: 8px;">
+            <div class="table-scroll" style="margin-top: 8px;">
               <table class="table" id="users-table">
                 <thead>
                   <tr>
@@ -342,8 +342,8 @@
 
           <div id="site-section" style="margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px;" hidden>
             <div class="section__head" style="margin: 0 0 10px;">
-              <h2 style="margin: 0;">首页内容</h2>
-              <p style="margin: 6px 0 0;">编辑首页滚动公告(每行一条),保存后首页即时生效。</p>
+              <h2 style="margin: 0;">首页配置</h2>
+              <p style="margin: 6px 0 0;">统一管理首页可配置内容:滚动公告、特色卡片、开发者墙与赞助者墙。保存后首页即时生效。</p>
             </div>
             <div class="panel" style="padding: 14px; max-width: 760px;">
               <div class="field">
@@ -363,6 +363,31 @@
                 <button class="btn btn--primary" type="button" id="site-save">保存</button>
               </div>
               <div class="toast" id="site-toast"></div>
+            </div>
+
+            <div id="site-walls" style="margin-top: 14px;" hidden>
+              <div class="section__head" style="margin: 0 0 10px;">
+                <h3 style="margin: 0;">开发者墙 / 赞助者墙</h3>
+                <p style="margin: 6px 0 0;">调整账户的墙面归属,首页展示墙即时同步;核心开发者档案始终展示在开发者墙。</p>
+              </div>
+              <div class="field" style="max-width: 320px;">
+                <input class="input" id="site-wall-search" placeholder="搜索账户名 / 名称" />
+              </div>
+              <div class="table-scroll" style="margin-top: 8px;">
+                <table class="table" id="site-walls-table">
+                  <thead>
+                    <tr>
+                      <th style="min-width: 70px;">头像</th>
+                      <th style="min-width: 140px;">名称</th>
+                      <th style="min-width: 130px;">账户名</th>
+                      <th style="min-width: 120px;">身份</th>
+                      <th style="min-width: 160px;">墙面归属</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="toast" id="site-wall-toast"></div>
             </div>
           </div>
 
@@ -398,7 +423,7 @@
       </section>
     </main>
 
-    <script type="module" src="/assets/site.js?v=20260612-02"></script>
-    <script type="module" src="/assets/admin.js?v=20260612-02"></script>
+    <script type="module" src="/assets/site.js?v=20260710-02"></script>
+    <script type="module" src="/assets/admin.js?v=20260710-02"></script>
   </body>
 </html>

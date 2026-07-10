@@ -28,6 +28,8 @@ const DEVELOPERS_JSON = path.join(CONFIG_DIR, "developers.json");
 const CHANGELOG_JSON = path.join(CONFIG_DIR, "changelog.json");
 const ASSETS_DIR = path.join(PUBLIC_DIR, "assets");
 const DEFAULT_AVATAR_URL = "/assets/logo.png";
+// 用户主页默认背景:清晰的站点大图(而不是被拉伸糊掉的 logo)。
+const DEFAULT_USER_COVER = "/assets/hero-bottom.png";
 const USER_INTRO_MAX_LENGTH = 80;
 const WORKSHOP_TITLE_MAX_LENGTH = 60;
 const WORKSHOP_DESCRIPTION_MAX_LENGTH = 1200;
@@ -1302,6 +1304,7 @@ function sanitizeStoredUser(user) {
     permissionLevel: getRolePreset(roleKey).permissionLevel,
     avatar: sanitizeUserAvatar(user.avatar),
     intro: sanitizeUserIntro(user.intro),
+    cover: typeof user.cover === "string" ? user.cover.trim() : "",
   };
 }
 
@@ -1379,13 +1382,14 @@ function buildUserHomepageProfile(user) {
   const badge = getRoleBadge(safeUser.roleKey);
   const intro = sanitizeUserIntro(safeUser.intro);
   const displayName = safeUser.displayName || safeUser.username;
+  const cover = (typeof safeUser.cover === "string" && safeUser.cover.trim()) ? safeUser.cover.trim() : DEFAULT_USER_COVER;
   const profile = publicDeveloperProfile({
     slug: safeUser.username,
     name: displayName,
     role: `${badge.label}账户主页`,
     qq: safeUser.qq ?? "",
     avatar: sanitizeUserAvatar(safeUser.avatar),
-    cover: DEFAULT_AVATAR_URL,
+    cover,
     headline: intro || `${badge.label}账户主页`,
     quote: `${displayName} 的个人主页`,
     bio: intro || `${displayName} 当前身份为 ${badge.label}。`,
@@ -1410,7 +1414,7 @@ function buildUserHomepageProfile(user) {
       accentB: badge.accentB,
       starColor: "#ffffff",
       particleDensity: badge.key === "admin" ? 84 : badge.key === "service" ? 72 : badge.key === "sponsor" ? 64 : 52,
-      cover: DEFAULT_AVATAR_URL,
+      cover,
     },
   });
   return {
@@ -2291,6 +2295,10 @@ app.post("/api/workshop", async (req, res) => {
   if (Array.isArray(body.externalLinks) && externalLinks.length !== body.externalLinks.filter(Boolean).length) {
     return res.status(400).json({ ok: false, error: "外链格式无效，请检查链接地址" });
   }
+  // 官网只提供 NBT 在线预览,不提供站内下载:投稿必须带站外下载链接。
+  if (externalLinks.length === 0) {
+    return res.status(400).json({ ok: false, error: "请填写作品的站外下载链接" });
+  }
 
   const now = new Date().toISOString();
   const entry = sanitizeWorkshopEntry({
@@ -2473,6 +2481,92 @@ app.delete("/api/developers/:slug/cover", async (req, res) => {
     return res.status(404).json({ ok: false, error: "Not found" });
   }
   res.json({ ok: true, profile: await buildDeveloperHomepageProfile(updatedProfile) });
+});
+
+// 自助上传个人主页背景(封面),存到 uploads/users/<username>/cover/ 下。
+app.post(
+  "/api/auth/cover",
+  express.raw({ type: "application/octet-stream", limit: "20mb" }),
+  async (req, res) => {
+    const user = await getRequestUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: "请先登录" });
+    const username = user.username;
+
+    const headerName = req.get("x-file-name") ?? "";
+    const fileName = decodeURIComponent(String(headerName)).trim();
+    if (!isValidImageFileName(fileName)) {
+      return res.status(400).json({ ok: false, error: "无效背景图片" });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ ok: false, error: "背景图片为空" });
+    }
+
+    const coverDir = safeJoin(safeJoin(USER_AVATARS_DIR, username) || "", "cover");
+    if (!coverDir) {
+      return res.status(400).json({ ok: false, error: "无效账户目录" });
+    }
+
+    const publicCoverPath = `/uploads/users/${encodeURIComponent(username)}/cover/${encodeURIComponent(fileName)}`;
+    let updatedUser = null;
+    await enqueueUsersWrite(async () => {
+      const users = await readUsers();
+      const next = [];
+      for (const entry of users) {
+        if (entry.username !== username) {
+          next.push(entry);
+          continue;
+        }
+        await fs.rm(coverDir, { recursive: true, force: true });
+        await fs.mkdir(coverDir, { recursive: true });
+        const destPath = safeJoin(coverDir, fileName);
+        if (!destPath) continue;
+        await fs.writeFile(destPath, req.body);
+        updatedUser = sanitizeStoredUser({
+          ...entry,
+          cover: publicCoverPath,
+          updatedAt: new Date().toISOString(),
+        });
+        next.push(updatedUser);
+      }
+      if (!updatedUser) return;
+      await writeUsers(next);
+    });
+
+    if (!updatedUser) {
+      return res.status(404).json({ ok: false, error: "账户不存在" });
+    }
+    res.json({ ok: true, profile: buildUserHomepageProfile(updatedUser) });
+  },
+);
+
+// 恢复默认背景。
+app.delete("/api/auth/cover", async (req, res) => {
+  const user = await getRequestUser(req);
+  if (!user) return res.status(401).json({ ok: false, error: "请先登录" });
+  const username = user.username;
+
+  const coverDir = safeJoin(safeJoin(USER_AVATARS_DIR, username) || "", "cover");
+  let updatedUser = null;
+  await enqueueUsersWrite(async () => {
+    const users = await readUsers();
+    const next = users.map((entry) => {
+      if (entry.username !== username) return entry;
+      updatedUser = sanitizeStoredUser({
+        ...entry,
+        cover: "",
+        updatedAt: new Date().toISOString(),
+      });
+      return updatedUser;
+    });
+    if (!updatedUser) return;
+    if (coverDir) await fs.rm(coverDir, { recursive: true, force: true });
+    await writeUsers(next);
+  });
+
+  if (!updatedUser) {
+    return res.status(404).json({ ok: false, error: "账户不存在" });
+  }
+  res.json({ ok: true, profile: buildUserHomepageProfile(updatedUser) });
 });
 
 app.post("/api/auth/login", async (req, res) => {
@@ -2832,12 +2926,16 @@ app.post("/api/feedback", async (req, res) => {
     return res.status(400).json({ ok: false, error: "请填写标题和详细描述" });
   }
 
+  // 若已登录,把反馈关联到该账户,便于用户在"我的反馈"里回看。
+  const sessionUser = await getRequestUser(req).catch(() => null);
+
   const entry = {
     id: isValidFeedbackDraftId(draftId) ? draftId : randomId(),
     createdAt: new Date().toISOString(),
     type,
     title: title.slice(0, 80),
     content: content.slice(0, 4000),
+    user: sessionUser?.username ?? "",
     contact: contact.slice(0, 80),
     gameVersion: gameVersion.slice(0, 40),
     modVersion: modVersion.slice(0, 60),
@@ -2857,6 +2955,29 @@ app.post("/api/feedback", async (req, res) => {
   });
 
   res.json({ ok: true, id: entry.id });
+});
+
+// 我的反馈(需登录):返回当前账户提交过的反馈记录,按时间倒序。
+app.get("/api/feedback/mine", async (req, res) => {
+  const user = await getRequestUser(req);
+  if (!user) return res.status(401).json({ ok: false, error: "请先登录" });
+  const list = await readFeedbackList();
+  const items = list
+    .filter((rec) => rec && rec.user === user.username)
+    .slice(0, 200)
+    .map((rec) => ({
+      id: rec.id,
+      createdAt: rec.createdAt || "",
+      type: rec.type === "bug" ? "bug" : "suggestion",
+      title: rec.title || "",
+      content: rec.content || "",
+      gameVersion: rec.gameVersion || "",
+      modVersion: rec.modVersion || "",
+      images: Array.isArray(rec.images) ? rec.images : [],
+      files: Array.isArray(rec.files) ? rec.files : [],
+      resolved: Boolean(rec.resolved),
+    }));
+  res.json({ ok: true, items });
 });
 
 app.post(
@@ -3163,6 +3284,13 @@ app.get("/admin.html", async (req, res) => {
 
 app.use(`/vendor/minecraft-assets/${MINECRAFT_ASSETS_VERSION}`, express.static(MINECRAFT_ASSETS_DIR));
 app.use("/vendor/three", express.static(THREE_BUILD_DIR));
+// 工坊 NBT 仅提供在线预览(经 /api/workshop/nbt-preview 服务端解析),禁止直链下载;下载请走作品外链。
+app.use("/uploads/workshop", (req, res, next) => {
+  if (/^\/[^/]+\/nbt\//.test(req.path)) {
+    return res.status(403).json({ ok: false, error: "NBT 文件仅提供在线预览,下载请使用作品的站外下载链接" });
+  }
+  next();
+});
 app.use(express.static(PUBLIC_DIR, { extensions: ["html"] }));
 
 app.get("/healthz", (_req, res) => {

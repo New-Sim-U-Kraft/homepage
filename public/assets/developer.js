@@ -11,6 +11,8 @@ const RADAR_META = [
   { key: "engagement", label: "参与度" },
 ];
 const AUTH_CHANGED_EVENT = "site:auth-changed";
+// 用户主页默认背景(与后端保持一致):用于判断当前是否为默认封面。
+const DEFAULT_USER_COVER = "/assets/hero-bottom.png";
 const PROFILE_THEME_PRESETS = {
   custom: {
     key: "custom",
@@ -579,6 +581,90 @@ function showToast(message, ok) {
   toast.textContent = message;
   toast.classList.toggle("is-show", Boolean(message));
   toast.style.borderColor = ok ? "rgba(34,197,94,0.35)" : "rgba(245,158,11,0.35)";
+}
+
+// ---------- 个人主页背景(封面)自助更换,仅对本人可见 ----------
+function ensureUserCoverControl() {
+  const cover = document.querySelector(".profile-cover");
+  if (!(cover instanceof HTMLElement)) return null;
+  let ctrl = el("user-cover-control");
+  if (ctrl instanceof HTMLElement) return ctrl;
+  ctrl = document.createElement("div");
+  ctrl.id = "user-cover-control";
+  ctrl.className = "user-cover-control";
+  ctrl.hidden = true;
+  ctrl.innerHTML =
+    '<input type="file" id="user-cover-input" accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif" hidden />' +
+    '<button type="button" class="btn btn--ghost" id="user-cover-pick">更换背景</button>' +
+    '<button type="button" class="btn btn--ghost" id="user-cover-remove" hidden>移除背景</button>';
+  cover.appendChild(ctrl);
+  const input = ctrl.querySelector("#user-cover-input");
+  ctrl.querySelector("#user-cover-pick").addEventListener("click", () => input.click());
+  input.addEventListener("change", async () => {
+    const file = input.files && input.files[0];
+    input.value = "";
+    if (file) await uploadUserCover(file);
+  });
+  ctrl.querySelector("#user-cover-remove").addEventListener("click", () => void removeUserCover());
+  return ctrl;
+}
+
+async function uploadUserCover(file) {
+  if (!isImageFile(file)) {
+    showToast("只支持 PNG/JPG/JPEG/WEBP/GIF 图片。", false);
+    return;
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    showToast("背景图片不能超过 20MB。", false);
+    return;
+  }
+  try {
+    showToast("背景上传中…", true);
+    const data = await fetchJson("/api/auth/cover", {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-file-name": encodeURIComponent(file.name),
+      },
+      body: await file.arrayBuffer(),
+    });
+    if (data.profile) {
+      state.profile = data.profile;
+      renderProfile(state.profile);
+    }
+    syncUserCoverControl();
+    showToast("背景已更新", true);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "背景上传失败", false);
+  }
+}
+
+async function removeUserCover() {
+  try {
+    showToast("正在恢复默认背景…", true);
+    const data = await fetchJson("/api/auth/cover", { method: "DELETE" });
+    if (data.profile) {
+      state.profile = data.profile;
+      renderProfile(state.profile);
+    }
+    syncUserCoverControl();
+    showToast("已恢复默认背景", true);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "操作失败", false);
+  }
+}
+
+function syncUserCoverControl() {
+  const ctrl = ensureUserCoverControl();
+  if (!(ctrl instanceof HTMLElement)) return;
+  const isUserOwner = state.profile?.profileType === "user" && isOwner();
+  ctrl.hidden = !isUserOwner;
+  const removeBtn = el("user-cover-remove");
+  if (removeBtn instanceof HTMLElement) {
+    const cover = state.profile?.cover || "";
+    const isDefault = !cover || cover === "/assets/logo.png" || cover === DEFAULT_USER_COVER;
+    removeBtn.hidden = isDefault;
+  }
 }
 
 function ensureOwnerMenu() {
@@ -1713,6 +1799,7 @@ async function syncOwnerState(options = {}) {
     setAccountPanelOpen(true);
     showToast("检测到默认密码未修改，请先在账户设置里完成改密。", false);
   }
+  syncUserCoverControl();
   return owner;
 }
 

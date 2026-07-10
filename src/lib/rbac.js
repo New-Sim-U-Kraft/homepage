@@ -151,6 +151,7 @@ export async function shapePublicUser(env, row) {
     badge,
     mustChangePassword: Boolean(row.must_change_password),
     avatar,
+    cover: typeof row.cover === "string" ? row.cover : "",
     profileUrl,
   };
 }

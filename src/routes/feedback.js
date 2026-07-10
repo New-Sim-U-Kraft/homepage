@@ -4,8 +4,25 @@ import {
   isValidFeedbackDraftId, isValidImageFileName, isValidFeedbackFileName,
   randomId, nowIso,
 } from "../lib/content.js";
+import { resolveUser, requireAuth } from "../lib/rbac.js";
 
 const r = new Hono();
+
+// 提供给"我的反馈"列表的精简形状(不含 IP/UA 等 meta)。
+function shapeMyFeedback(rec) {
+  return {
+    id: rec.id,
+    createdAt: rec.createdAt || "",
+    type: rec.type === "bug" ? "bug" : "suggestion",
+    title: rec.title || "",
+    content: rec.content || "",
+    gameVersion: rec.gameVersion || "",
+    modVersion: rec.modVersion || "",
+    images: Array.isArray(rec.images) ? rec.images : [],
+    files: Array.isArray(rec.files) ? rec.files : [],
+    resolved: Boolean(rec.resolved),
+  };
+}
 
 function sanitizeFeedbackAttachments(value, kind, draftId) {
   if (!Array.isArray(value) || !isValidFeedbackDraftId(draftId)) return [];
@@ -37,9 +54,14 @@ r.post("/", async (c) => {
   const content = (typeof body.content === "string" ? body.content.trim() : "").slice(0, 4000);
   if (!title || !content) return c.json({ ok: false, error: "请填写标题和详细描述" }, 400);
 
+  // 若已登录,把反馈关联到该账户,便于用户在"我的反馈"里回看。
+  const sessionUser = await resolveUser(c).catch(() => null);
+  const owner = sessionUser?.username || "";
+
   const id = isValidFeedbackDraftId(draftId) ? draftId : randomId();
   const rec = {
     id, createdAt: nowIso(), type, title, content,
+    user: owner,
     contact: (typeof body.contact === "string" ? body.contact.trim() : "").slice(0, 80),
     gameVersion: (typeof body.gameVersion === "string" ? body.gameVersion.trim() : "").slice(0, 40),
     modVersion: (typeof body.modVersion === "string" ? body.modVersion.trim() : "").slice(0, 60),
@@ -54,6 +76,23 @@ r.post("/", async (c) => {
     await c.env.DB.prepare("DELETE FROM feedback WHERE id = ?").bind(row.id).run();
   }
   return c.json({ ok: true, id });
+});
+
+// 我的反馈(需登录):返回当前账户提交过的反馈记录,按时间倒序。
+r.get("/mine", requireAuth(), async (c) => {
+  const user = c.get("user");
+  const username = user?.username || "";
+  if (!username) return c.json({ ok: true, items: [] });
+  const rows = await c.env.DB.prepare("SELECT data FROM feedback ORDER BY created_at DESC").all();
+  const items = [];
+  for (const row of rows.results || []) {
+    let rec;
+    try { rec = JSON.parse(row.data); } catch { continue; }
+    if (!rec || rec.user !== username) continue;
+    items.push(shapeMyFeedback(rec));
+    if (items.length >= 200) break;
+  }
+  return c.json({ ok: true, items });
 });
 
 // 附件上传(二进制)

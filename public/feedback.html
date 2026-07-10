@@ -19,7 +19,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260612-02" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260710-02" />
     <style>
       .feedback-bug-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -177,10 +177,20 @@
 
         <div class="toast" id="toast"></div>
       </section>
+
+      <section class="section" id="feedback-mine-section" hidden>
+        <div class="section__head" data-kicker="history">
+          <h2>我的反馈</h2>
+          <p>登录后提交的反馈会记录在这里，方便回看自己反馈过哪些问题。</p>
+        </div>
+        <div class="history is-open" id="feedback-mine-list">
+          <div class="history__item"><div class="history__left"><div class="history__name">反馈记录加载中...</div></div></div>
+        </div>
+      </section>
     </main>
 
-    <script type="module" src="/assets/site.js?v=20260612-02"></script>
-    <script type="module" src="/assets/feedback.js?v=20260612-02"></script>
+    <script type="module" src="/assets/site.js?v=20260710-02"></script>
+    <script type="module" src="/assets/feedback.js?v=20260710-02"></script>
   </body>
 </html>
 
