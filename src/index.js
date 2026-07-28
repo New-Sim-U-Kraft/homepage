@@ -7,6 +7,7 @@ import developersRoutes from "./routes/developers.js";
 import workshopRoutes from "./routes/workshop.js";
 import feedbackRoutes from "./routes/feedback.js";
 import uploadsRoutes from "./routes/uploads.js";
+import modRoutes from "./routes/mod.js";
 
 const app = new Hono();
 
@@ -61,6 +62,7 @@ app.route("/api/admin", adminRoutes);
 app.route("/api/developers", developersRoutes);
 app.route("/api/workshop", workshopRoutes);
 app.route("/api/feedback", feedbackRoutes);
+app.route("/api/mod", modRoutes);
 app.route("/api", publicRoutes);
 app.route("/uploads", uploadsRoutes);
 

@@ -85,6 +85,32 @@
             <div class="toast" id="profile-toast"></div>
           </div>
 
+          <!-- Mod 授权令牌（sponsor 及以上可见） -->
+          <div class="panel" id="mod-token-panel" style="max-width:560px; padding:16px; margin-top:14px;" hidden>
+            <h2 style="margin:0 0 4px;">Mod 授权令牌</h2>
+            <p class="hint" style="margin:0 0 12px;">用于内测版 Mod 的授权校验，填入游戏配置文件后首次启动自动绑定设备。</p>
+
+            <!-- 无 token 状态 -->
+            <div id="mod-token-empty">
+              <p style="margin:0 0 10px;color:var(--fg-muted,#888);">尚未生成令牌。</p>
+              <button class="btn btn--primary" id="mod-token-generate">生成令牌</button>
+            </div>
+
+            <!-- 有 token 状态 -->
+            <div id="mod-token-info" hidden>
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+                <input class="input" id="mod-token-value" type="text" readonly
+                       style="font-family:monospace;font-size:13px;flex:1;" />
+                <button class="btn" id="mod-token-copy" type="button">复制</button>
+              </div>
+              <div id="mod-token-status" style="font-size:13px;margin-bottom:12px;"></div>
+              <button class="btn" id="mod-token-reset" type="button"
+                      style="color:#dc2626;border-color:#dc2626;">重置设备绑定</button>
+            </div>
+
+            <div class="toast" id="mod-token-toast"></div>
+          </div>
+
           <!-- 改密码 -->
           <div class="panel" style="max-width:560px; padding:16px; margin-top:14px;">
             <h2 style="margin:0 0 10px;">修改密码</h2>

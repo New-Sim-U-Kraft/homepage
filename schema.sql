@@ -97,3 +97,14 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+
+-- ============ Mod 授权令牌 ============
+CREATE TABLE IF NOT EXISTS mod_tokens (
+  token             TEXT PRIMARY KEY,
+  username          TEXT NOT NULL REFERENCES users(username),
+  bound_fingerprint TEXT DEFAULT NULL,
+  bound_at          TEXT DEFAULT NULL,
+  reset_at          TEXT DEFAULT NULL,
+  created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mod_tokens_username ON mod_tokens(username);
