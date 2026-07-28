@@ -5,6 +5,29 @@ import { nowIso } from "../lib/content.js";
 
 const r = new Hono();
 
+// 每个 Worker 实例只建一次表（D1 冷启动兼容层）
+let schemaReady = false;
+async function ensureSchema(db) {
+  if (schemaReady) return;
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS mod_tokens (
+      token             TEXT PRIMARY KEY,
+      username          TEXT NOT NULL REFERENCES users(username),
+      bound_fingerprint TEXT,
+      bound_at          TEXT,
+      reset_at          TEXT,
+      created_at        TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_mod_tokens_username ON mod_tokens(username);
+  `);
+  schemaReady = true;
+}
+
+r.use("*", async (c, next) => {
+  await ensureSchema(c.env.DB);
+  await next();
+});
+
 // 校验 token + fingerprint (公开端点,供 mod 调用)
 r.post("/validate", async (c) => {
   const { token, fingerprint } = await c.req.json().catch(() => ({}));
