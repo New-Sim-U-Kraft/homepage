@@ -7,6 +7,8 @@ import authRoutes from './routes/auth'
 import publicRoutes from './routes/public'
 import workshopRoutes from './routes/workshop'
 import hookRoutes from './routes/hooks'
+import feedbackRoutes from './routes/feedback'
+import adminRoutes from './routes/admin'
 
 const app = new Hono<AppBindings>().basePath('/api')
 
@@ -77,6 +79,8 @@ app.route('/auth', authRoutes)
 app.route('/mod', modRoutes)
 app.route('/workshop', workshopRoutes)
 app.route('/hooks', hookRoutes)
+app.route('/feedback', feedbackRoutes)
+app.route('/admin', adminRoutes)
 app.route('/', publicRoutes)
 
 app.all('*', (c) => c.json({ ok: false, error: 'Not Found' }, 404))

@@ -40,4 +40,9 @@ export const AUDIT = {
   MOD_DEVICE_ANOMALY: 'mod.device.anomaly',
   USER_ROLE_SYNC: 'user.role.sync',
   USER_DELETED: 'user.deleted',
+  FEEDBACK_HANDLE: 'feedback.handle',
+  WORKSHOP_REVIEW: 'workshop.review',
+  CHANGELOG_CREATE: 'changelog.create',
+  CHANGELOG_DELETE: 'changelog.delete',
+  SITE_CONFIG_UPDATE: 'site.config.update',
 } as const
