@@ -22,11 +22,9 @@ useHead({ title: () => `${data.value?.item.title ?? '作品'} · 创意工坊` }
 
     <p class="mt-6 whitespace-pre-line">{{ data.item.description }}</p>
 
-    <!-- 3D 预览待 H7 实现：服务端解析 NBT 返回紧凑渲染数据，原始文件不出站 -->
-    <div
-      class="mt-8 flex h-64 items-center justify-center rounded-(--ui-radius) border border-dashed border-(--ui-border) text-sm text-(--ui-text-dimmed)"
-    >
-      3D 预览开发中
+    <!-- 服务端解析 NBT 返回紧凑二进制，原始文件不出站 -->
+    <div class="mt-8">
+      <NbtViewer :workshop-id="data.item.id" />
     </div>
 
     <section v-if="data.item.files.length" class="mt-8">

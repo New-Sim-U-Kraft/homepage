@@ -5,6 +5,7 @@
 // 格式或换个子目录就会漏出去。
 import { Hono } from 'hono'
 import type { AppBindings } from '../types'
+import { edgeCache } from '../lib/cache'
 
 // 挂在 /uploads 而非 /api 下：R2 对象的 URL 直接对外，路径要稳定好看
 const r = new Hono<AppBindings>().basePath('/uploads')
@@ -18,15 +19,6 @@ const PUBLIC_PATTERNS = [
 
 function isPublic(key: string): boolean {
   return PUBLIC_PATTERNS.some((re) => re.test(key))
-}
-
-/**
- * 边缘缓存。`caches.default` 是 Cloudflare 扩展，在 Nitro 的 Node 开发环境里
- * 整个 `caches` 全局都不存在，直接访问会抛 ReferenceError。
- */
-function edgeCache(): Cache | null {
-  const c = (globalThis as { caches?: { default?: Cache } }).caches
-  return c?.default ?? null
 }
 
 r.get('/*', async (c) => {

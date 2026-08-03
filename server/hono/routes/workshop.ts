@@ -10,6 +10,9 @@ import { requireAuth } from '../lib/rbac'
 import { rateLimit } from '../lib/ratelimit'
 import { UploadError, deleteFiles, putFile, type UploadedFile } from '../lib/upload'
 import { recordAudit } from '../lib/audit'
+import { edgeCache } from '../lib/cache'
+import { parseNbt } from '../lib/nbt'
+import { encodeRenderModel } from '../lib/renderModel'
 import type { WorkshopItem, WorkshopItemSummary } from '../../../shared/types'
 
 const r = new Hono<AppBindings>()
@@ -126,6 +129,76 @@ r.get('/:id', async (c) => {
   }
 
   return c.json({ ok: true, item })
+})
+
+// ─────────────────────────────────────────────────────────────
+// 3D 预览数据
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 返回紧凑二进制的渲染模型（格式见 lib/renderModel.ts）。
+ *
+ * 原始 .nbt 永远不出站：客户端拿到的是解析后的方块坐标与调色板，
+ * 丢掉了 blockstate 属性、tile entity 与实体，重建不出可用的原文件。
+ */
+r.get('/:id/preview', async (c) => {
+  const id = c.req.param('id') ?? ''
+
+  const cache = edgeCache()
+  const cached = await cache?.match(c.req.raw)
+  if (cached) return cached
+
+  const row = await c.env.DB.prepare('SELECT files, status, author_sub FROM workshop_items WHERE id = ?')
+    .bind(id)
+    .first<{ files: string; status: string; author_sub: string | null }>()
+
+  if (!row) return c.json({ ok: false, error: '作品不存在' }, 404)
+
+  // 与详情接口保持一致：未发布的作品对匿名访客等同于不存在
+  if (row.status !== 'published') {
+    const user = c.get('user')
+    if (!user || row.author_sub !== user.sub) {
+      return c.json({ ok: false, error: '作品不存在' }, 404)
+    }
+  }
+
+  const files = parseJson<{ items?: { name: string; kind: string; key?: string }[] }>(
+    row.files,
+    {},
+    `workshop.${id}.files`,
+  )
+  const structure = files.items?.find((f) => f.kind === 'structure' && f.key)
+  if (!structure?.key) return c.json({ ok: false, code: 'NO_STRUCTURE', error: '没有结构文件' }, 404)
+
+  const obj = await c.env.R2.get(structure.key)
+  if (!obj) return c.json({ ok: false, error: '结构文件已丢失' }, 404)
+
+  let encoded
+  try {
+    encoded = encodeRenderModel(await parseNbt(await obj.arrayBuffer()))
+  } catch (e) {
+    console.warn('[workshop] NBT 解析失败', id, String(e))
+    return c.json({ ok: false, code: 'PARSE_FAILED', error: '结构文件无法解析' }, 400)
+  }
+  if (!encoded) {
+    return c.json({ ok: false, code: 'NOT_RENDERABLE', error: '文件里没有可渲染的方块数据' }, 400)
+  }
+
+  const res = new Response(encoded.buffer, {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Cache-Control': 'public, max-age=3600',
+      // 被截断时如实告知，前端要把这个数字显示出来
+      'X-Model-Total': String(encoded.meta.totalBlocks),
+      'X-Model-Rendered': String(encoded.meta.renderedBlocks),
+      'X-Model-Omitted': String(encoded.meta.omittedBlocks),
+    },
+  })
+
+  if (cache && row.status === 'published') {
+    c.executionCtx?.waitUntil(cache.put(c.req.raw, res.clone()))
+  }
+  return res
 })
 
 // ─────────────────────────────────────────────────────────────

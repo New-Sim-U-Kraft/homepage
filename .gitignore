@@ -43,3 +43,4 @@ data/
 # 构建期生成的 Minecraft 资源
 public/vendor/mc/
 app/public/vendor/mc/
+.playwright-mcp/

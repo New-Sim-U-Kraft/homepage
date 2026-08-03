@@ -12,6 +12,13 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  // 图标本地打包，不走 iconify 的远程 API：
+  // 线上多一次外部请求既慢又多一个依赖点，网络不畅时图标直接不显示。
+  icon: {
+    provider: 'iconify',
+    serverBundle: { collections: ['lucide'] },
+  },
+
   devtools: { enabled: true },
 
   nitro: {
