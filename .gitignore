@@ -1,0 +1,45 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 构建产物
+.nuxt/
+.output/
+dist/
+.nitro/
+.cache/
+
+# Cloudflare
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# 环境变量
+.env
+.env.*
+!.env.example
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 日志与调试
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.dbg/
+debug-*.md
+
+# 数据文件（历史遗留，不再入库）
+data/
+
+# 构建期生成的 Minecraft 资源
+public/vendor/mc/
+app/public/vendor/mc/

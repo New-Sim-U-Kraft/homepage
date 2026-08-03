@@ -1,0 +1,51 @@
+{
+  "name": "nsuk-homepage",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "wrangler dev",
+    "deploy": "nuxt build && wrangler deploy",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:migrate:local": "wrangler d1 migrations apply nsuk --local",
+    "db:migrate:remote": "wrangler d1 migrations apply nsuk --remote",
+    "db:seed:local": "wrangler d1 execute nsuk --local --file scripts/seed.sql"
+  },
+  "dependencies": {
+    "@nuxt/ui": "^4.10.0",
+    "hono": "^4.12.34",
+    "nuxt": "^4.5.1",
+    "vue": "^3.5.40",
+    "vue-router": "^5.2.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd",
+      "unrs-resolver",
+      "vue-demi"
+    ]
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260801.1",
+    "@nuxt/eslint": "^1.16.0",
+    "eslint": "^10.8.0",
+    "nitro-cloudflare-dev": "^0.2.2",
+    "prettier": "^3.9.6",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3",
+    "vue-tsc": "^3.3.9",
+    "wrangler": "^4.118.0"
+  }
+}

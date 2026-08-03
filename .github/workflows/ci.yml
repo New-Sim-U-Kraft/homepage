@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'refactor/**']
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      # migration 必须连号且不重复，否则 wrangler 应用顺序不可预期
+      - name: Check migration order
+        run: |
+          ls migrations/*.sql | sed 's|.*/||' | sort -c
+          test "$(ls migrations/*.sql | wc -l)" = "$(ls migrations/*.sql | sed 's|.*/\([0-9]*\)_.*|\1|' | sort -u | wc -l)"

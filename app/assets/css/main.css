@@ -1,0 +1,7 @@
+@import 'tailwindcss';
+@import '@nuxt/ui';
+
+/* 设计令牌待定（设计条目 I3），此处仅占位保证构建通过 */
+:root {
+  --ui-radius: 0.5rem;
+}

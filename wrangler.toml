@@ -1,0 +1,44 @@
+name = "nsuk-homepage"
+main = "./.output/server/index.mjs"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 日志：Dashboard → Worker → Observability / Logs
+[observability]
+enabled = true
+
+# ---- 静态资源：Nuxt 构建产物中的 public 部分 ----
+# 请求先匹配静态文件，未命中的才进 Worker。
+[assets]
+directory = "./.output/public"
+binding = "ASSETS"
+
+# ---- D1：关系数据 ----
+# 旧库数据已放弃，此处使用新建的库。
+# 创建：wrangler d1 create nsuk  然后把返回的 id 填进来。
+[[d1_databases]]
+binding = "DB"
+database_name = "nsuk"
+database_id = "TODO_RUN_WRANGLER_D1_CREATE"
+migrations_dir = "migrations"
+
+# ---- KV：会话、JWKS 缓存、License 吊销名单、验证码 ----
+# 创建：wrangler kv namespace create KV
+[[kv_namespaces]]
+binding = "KV"
+id = "TODO_RUN_WRANGLER_KV_CREATE"
+
+# ---- R2：上传文件 ----
+# 创建：wrangler r2 bucket create nsuk-uploads
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "nsuk-uploads"
+
+# ---- 非敏感变量 ----
+[vars]
+NUXT_PUBLIC_SITE_URL = "https://nsuk.example"
+
+# ---- secrets（用命令写入，不入库）----
+# wrangler secret put NUXT_PRISM_CLIENT_SECRET
+# wrangler secret put NUXT_MOD_LICENSE_PRIVATE_KEY
+# wrangler secret put NUXT_WEBHOOK_SECRET
