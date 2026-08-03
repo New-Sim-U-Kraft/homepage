@@ -84,12 +84,14 @@ r.post('/prism/audit', async (c) => {
       return c.json({ ok: true, applied: result?.changed ?? false })
     }
 
-    // ── 成员被移出团队 ──
-    // 与 groups_change 是两个独立事件，必须分别订阅，否则移出团队的人不会掉权限
-    case 'team.member.remove': {
+    // ── 离开团队 ──
+    // 被移出（remove）与主动退出（leave）是两个事件，都要处理；
+    // 它们又与 groups_change 独立，只订身份组变更的话，退团的人不会掉权限。
+    case 'team.member.remove':
+    case 'team.member.leave': {
       if (!sub) return c.json({ ok: true, ignored: 'no_resource' })
-      const result = await reconcileUser(c.env, sub, 'guest', 'webhook.member_remove')
-      console.log('[hooks] member_remove', sub, '→', result?.role)
+      const result = await reconcileUser(c.env, sub, 'guest', `webhook.${event}`)
+      console.log('[hooks]', event, sub, '→', result?.role)
       return c.json({ ok: true, applied: result?.changed ?? false })
     }
 
@@ -136,15 +138,35 @@ r.post('/prism/audit', async (c) => {
     }
 
     // ── 账号注销 ──
-    // 保留本地档案行，否则工坊作品与审计会指向不存在的用户
-    case 'user.delete':
+    // 保留本地档案行，否则工坊作品与审计会指向不存在的用户。
+    //
+    // `team.member.account_deleted` 是团队作用域的事件，也是这里真正收得到的
+    // 那个 —— 本站的 webhook 建在团队下，用户作用域的 `user.account.deleted`
+    // 未必会投递过来。后两个留作兼容。
+    case 'team.member.account_deleted':
+    case 'user.account.deleted':
     case 'admin.user.delete': {
       if (!sub) return c.json({ ok: true, ignored: 'no_resource' })
       await markUserDeleted(c.env.DB, sub)
       await destroySessionsForUser(c.env.KV, sub)
       await recordAudit(c.env.DB, { actor: 'system', action: AUDIT.USER_DELETED, target: sub })
-      console.log('[hooks] user_delete', sub)
+      console.log('[hooks] account_deleted', sub)
       return c.json({ ok: true })
+    }
+
+    // ── 团队进入解散流程 ──
+    // Prism 侧是两段式：先停用全部受限账号，宽限期（默认 7 天）后才真正删号。
+    // 这里只告警不处置 —— 期间管理员可以取消解散，提前把用户数据动了反而糟。
+    // 那些账号的会话会因为 Prism 侧 is_active=0 而在下次静默复查时自然失效。
+    case 'admin.team.dissolve_started': {
+      console.error('[hooks] ⚠ NSUK 团队进入解散流程，宽限期结束后全部受限账号将被删除')
+      await recordAudit(c.env.DB, {
+        actor: 'system',
+        action: 'team.dissolve.started',
+        target: payload.scope_id ?? teamId,
+        detail: payload.metadata ?? null,
+      })
+      return c.json({ ok: true, warned: true })
     }
 
     default:

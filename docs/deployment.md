@@ -63,13 +63,36 @@ P1（应用预绑定团队的窄 scope）落地前没有更窄的选择 —— �
 {"event":"{event}","resource_id":"{resource_id}","scope_id":"{scope_id}","metadata":{metadata},"timestamp":"{timestamp}"}
 ```
 
-- 订阅事件：`team.member.groups_change`、`team.member.remove`、`team.group.delete`
+- 订阅事件（事件名以 Prism `worker/lib/audit.ts` 为准）：
 
-**三个都要订**。只订 `groups_change` 会漏掉被整个移出团队的人；只订前两个，
-身份组定义被删除时不会有任何通知。
+| 事件 | 不订会怎样 |
+|---|---|
+| `team.member.groups_change` | 身份组增删完全感知不到 |
+| `team.member.remove` | 被踢出团队的人不掉权限 |
+| `team.member.leave` | **主动退团**的人不掉权限（与 remove 是两个事件） |
+| `team.group.delete` | 身份组定义被删时无任何通知 |
+| `team.member.account_deleted` | 注销的账号在本站仍显示为正常用户 |
+| `admin.team.dissolve_started` | 团队进入解散流程时没有告警 |
+
+用 glob `team.*` 一次订完更省事，未识别的事件本站会直接忽略。
+
+账号注销要订的是 **`team.member.account_deleted`** 而不是 `user.account.deleted`
+—— 本站 webhook 建在团队作用域下，用户作用域的事件未必会投递过来。
 
 这个 webhook 不是可选优化：模组玩家可能长期不访问网页，`validate` 读的是本地
 `role_key`，没有 webhook 就只能等 License 自然过期（最长 4 天）才失效。
+
+### 对 Prism 的依赖与降级
+
+以下三项在 Prism 侧未落地时，本站的行为：
+
+| 依赖 | 未落地时 | 影响 |
+|---|---|---|
+| P1 应用预绑定团队的窄 scope | 用 `teams:read` | 属过度授权，ID token 会带上用户全部团队的 membership claim。本站只读 `groups_in_team_<NSUK>`，其余一概忽略 |
+| `/join?continue=` 回跳参数 | 参数被忽略 | 用户完成注册后停在 Prism 页面，需要自己点回官网。功能不受影响 |
+| 账号删除审计事件 | 已按现有事件名订阅 | 若事件名变更，本站落到 `unhandled_event` 分支并返回 200，不会报错；注销的用户要到下次静默复查才被标记 |
+
+三项都不阻塞上线。
 
 ## 三、生成 License 签名密钥
 
