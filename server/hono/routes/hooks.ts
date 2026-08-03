@@ -27,11 +27,26 @@ const SECRET_HEADER = 'X-NSUK-Webhook-Secret'
 const MAX_FANOUT = 100
 
 interface WebhookPayload {
+  /** Prism 的模板变量叫 `{action}`，`event` 只是本站模板里的别名 */
+  action?: string
   event?: string
-  resource_id?: string
+  scope?: string
   scope_id?: string
+  resource_type?: string
+  resource_id?: string
+  actor_id?: string
   metadata?: Record<string, unknown>
   timestamp?: string
+}
+
+/**
+ * Prism 的 `interpolate` 对未知占位符是原样保留的，所以模板里写错变量名
+ * （例如把 `{action}` 写成 `{event}`）不会报错，只会让本站收到字面量
+ * `"{event}"` 然后当作未知事件忽略掉 —— 链路静默失效且两边都返回 200。
+ * 这里显式识别出这种情况并报错。
+ */
+function looksUninterpolated(v: string): boolean {
+  return /^\{\w+\}$/.test(v)
 }
 
 r.post('/prism/audit', async (c) => {
@@ -52,8 +67,16 @@ r.post('/prism/audit', async (c) => {
   }
 
   const payload = await c.req.json<WebhookPayload>().catch((): WebhookPayload => ({}))
-  const event = String(payload.event ?? '')
+  const event = String(payload.action ?? payload.event ?? '')
   const teamId = c.env.PRISM_TEAM_ID ?? ''
+
+  if (looksUninterpolated(event)) {
+    console.error(
+      `[hooks] webhook body 模板里的占位符未被替换：收到 "${event}"。` +
+        `Prism 的事件名变量是 {action}，不是 {event}`,
+    )
+    return c.json({ ok: false, code: 'BAD_TEMPLATE', error: 'body 模板占位符未替换' }, 400)
+  }
 
   // 只处理 NSUK 团队的事件。scope_id 缺失时放行 —— 旧模板可能不带这个字段
   if (payload.scope_id && teamId && payload.scope_id !== teamId) {

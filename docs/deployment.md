@@ -57,11 +57,19 @@ P1（应用预绑定团队的窄 scope）落地前没有更窄的选择 —— �
 
 - URL：`https://<官网域名>/api/hooks/prism/audit`
 - Header：`X-NSUK-Webhook-Secret: <与 WEBHOOK_SECRET 相同的值>`
-- Body 模板：
+- Body 模板（**一字不差地复制**）：
 
 ```json
-{"event":"{event}","resource_id":"{resource_id}","scope_id":"{scope_id}","metadata":{metadata},"timestamp":"{timestamp}"}
+{"action":"{action}","scope":"{scope}","scope_id":"{scope_id}","resource_type":"{resource_type}","resource_id":"{resource_id}","actor_id":"{actor_id}","metadata":{metadata},"timestamp":"{timestamp}"}
 ```
+
+事件名的变量是 **`{action}`**，不是 `{event}`。Prism 的 `interpolate`
+对未知占位符原样保留，写错变量名不会报错，只会让本站收到字面量 `"{event}"`
+然后把每一条都当未知事件忽略 —— 两边都返回 200，链路静默失效。
+本站对这种情况会记 error 并返回 400，部署后翻一眼日志即可确认。
+
+`{metadata}` **不要加引号**：它插值出来已经是一个 JSON 对象字面量，
+加了引号会变成字符串，解析不出 `added` / `removed`。
 
 - 订阅事件（事件名以 Prism `worker/lib/audit.ts` 为准）：
 
@@ -89,10 +97,26 @@ P1（应用预绑定团队的窄 scope）落地前没有更窄的选择 —— �
 | 依赖 | 未落地时 | 影响 |
 |---|---|---|
 | P1 应用预绑定团队的窄 scope | 用 `teams:read` | 属过度授权，ID token 会带上用户全部团队的 membership claim。本站只读 `groups_in_team_<NSUK>`，其余一概忽略 |
-| `/join?continue=` 回跳参数 | 参数被忽略 | 用户完成注册后停在 Prism 页面，需要自己点回官网。功能不受影响 |
+| `/join?continue=` 跨域回跳 | **当前不支持跨域** | 见下 |
 | 账号删除审计事件 | 已按现有事件名订阅 | 若事件名变更，本站落到 `unhandled_event` 分支并返回 200，不会报错；注销的用户要到下次静默复查才被标记 |
 
 三项都不阻塞上线。
+
+关于 `continue`：Prism 的注册页（`src/pages/JoinRegister.tsx`）对该参数只接受
+**同源**地址：
+
+```js
+const url = new URL(raw, window.location.origin)
+return url.origin === window.location.origin ? url.toString() : null
+```
+
+`window.location.origin` 是 Prism 自己的域名，因此 `continue=https://<官网域名>/`
+会被判为跨域而丢弃，用户注册完停在 Prism 页面。
+
+参数照配不误（无害，Prism 放开跨域白名单后会自动生效），但**引导文案不能写
+「完成后会自动跳回」**。要根治需要 Prism 侧支持一份回跳白名单 —— 例如允许回跳到
+该团队已注册 OAuth 应用的 redirect_uri 域名，这样既不是开放重定向，也能覆盖
+本站这种场景。
 
 ## 三、生成 License 签名密钥
 

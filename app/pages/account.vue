@@ -62,8 +62,12 @@ const ERROR_TEXT: Record<string, string> = {
         color="warning"
         variant="subtle"
         title="尚未加入 NSUK"
-        description="你的 Prism 账号还不属于 NSUK 团队，暂时只能浏览公开内容。"
+        description="你的 Prism 账号还不属于 NSUK 团队，暂时只能浏览公开内容。完成加入后请回到本页刷新。"
       >
+        <!--
+          文案不能写「完成后自动跳回」：Prism 的注册页对 continue 参数只接受
+          同源地址，跨域回跳会被丢弃，用户实际上会停在 Prism 那边。
+        -->
         <template #actions>
           <UButton v-if="joinUrl" :to="joinUrl" external size="sm">前往加入</UButton>
         </template>
