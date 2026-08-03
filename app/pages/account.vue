@@ -1,7 +1,7 @@
 <script setup lang="ts">
 useHead({ title: '账号 · NSUK' })
 
-const { user, configured, joinUrl, needsJoin, roleLabel, login } = useAuth()
+const { user, configured, joinUrl, needsJoin, roleLabel, level, login } = useAuth()
 const route = useRoute()
 
 /** 回调失败时会带 ?error= 回来 */
@@ -71,13 +71,16 @@ const ERROR_TEXT: Record<string, string> = {
 
       <section class="mt-10">
         <h2 class="text-lg font-semibold">模组授权</h2>
-        <p class="mt-1 text-sm text-(--ui-text-muted)">
-          赞助者及以上可生成令牌，填入模组后即可使用。一个账号同时只能绑定一台设备。
+        <p class="mt-1 mb-4 text-sm text-(--ui-text-muted)">
+          赞助者及以上可生成令牌，填入模组后即可使用。
         </p>
+
+        <ModTokenPanel v-if="level >= 1" />
         <div
-          class="mt-4 rounded-(--ui-radius) border border-dashed border-(--ui-border) p-8 text-sm text-(--ui-text-dimmed)"
+          v-else
+          class="rounded-(--ui-radius) border border-dashed border-(--ui-border) p-6 text-sm text-(--ui-text-dimmed)"
         >
-          开发中（M4）。
+          模组授权面向赞助者及以上开放。
         </div>
       </section>
     </template>

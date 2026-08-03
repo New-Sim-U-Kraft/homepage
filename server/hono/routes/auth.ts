@@ -24,11 +24,22 @@ import {
 } from '../lib/session'
 import { roleFromClaims, upsertUserFromClaims } from '../lib/users'
 import { resolveUser } from '../lib/rbac'
+import { timingSafeEqual } from '../lib/crypto'
 
 const r = new Hono<AppBindings>()
 
 const STATE_TTL_SEC = 600
 const SESSION_TTL_SEC = 7 * 24 * 3600
+
+/**
+ * state 除了存 KV，还要写一个只在回调路径可见的 cookie。
+ *
+ * 只查 KV 是不够的：攻击者可以自己走一遍授权拿到有效的 code+state，
+ * 再把回调链接诱导受害者点开，受害者的浏览器就被登进了攻击者的账号
+ * （login CSRF）。把 state 同时绑定到浏览器后，攻击者无法让受害者持有
+ * 对应的 cookie，回调必然对不上。
+ */
+const STATE_COOKIE = 'nsuk_oauth_state'
 
 /**
  * P1 落地前用聚合 scope。它会把用户**所有**团队的 membership claim 都带上，
@@ -73,6 +84,15 @@ r.get('/login', async (c) => {
     expirationTtl: STATE_TTL_SEC,
   })
 
+  // SameSite=Lax 允许顶级导航（OAuth 回调正是如此）携带该 cookie
+  setCookie(c, STATE_COOKIE, auth.state, {
+    httpOnly: true,
+    secure: cookieSecure(c.env),
+    sameSite: 'Lax',
+    path: '/api/auth',
+    maxAge: STATE_TTL_SEC,
+  })
+
   return c.redirect(auth.url, 302)
 })
 
@@ -89,6 +109,13 @@ r.get('/callback', async (c) => {
   const code = c.req.query('code')
   const state = c.req.query('state')
   if (!code || !state) return fail('missing_code')
+
+  // 先验浏览器绑定：这一步挡住的是攻击者拿自己的 code 诱导受害者点击的情形
+  const cookieState = getCookie(c, STATE_COOKIE) ?? ''
+  deleteCookie(c, STATE_COOKIE, { path: '/api/auth' })
+  if (!cookieState || !timingSafeEqual(cookieState, state)) {
+    return fail('invalid_state')
+  }
 
   // state 一次性消费：读完立刻删，防止回调被重放
   const stateKey = `oidcstate:${state}`
