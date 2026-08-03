@@ -4,6 +4,7 @@ const { user, configured, roleLabel, login, logout } = useAuth()
 const nav = [
   { label: '首页', to: '/' },
   { label: '创意工坊', to: '/workshop' },
+  { label: '画廊', to: '/gallery' },
   { label: '开发者', to: '/developers' },
   { label: '反馈', to: '/feedback' },
 ]

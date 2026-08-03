@@ -76,10 +76,33 @@ schema 只通过 `migrations/` 下的有序文件演进，**不在请求路径�
 | 里程碑 | 内容 | 状态 |
 |---|---|---|
 | M0 | 脚手架、CI、迁移骨架 | ✅ |
-| M1 | Prism 登录链路（D 组） | 等 Prism 侧适配 |
-| M2 | 前台：首页 / 画廊 / 工坊 / 反馈 / 个人页 | |
-| M3 | 管理后台 | |
-| M4 | 模组授权（F 组） | |
-| M5 | 切换上线 | |
+| M1 | Prism 登录链路 | ✅ 代码完成，等配置值 |
+| M2 | 前台：首页 / 工坊 / 画廊 / 开发者 / 个人页 / 反馈 | ✅ |
+| M3 | 管理后台 | ✅ |
+| M4 | 模组授权 + 审计 webhook | ✅ |
+| M5 | 切换上线 | 待部署 |
+
+### 上线前需要的配置
+
+线上跑起来还差这些值（填进 `wrangler.toml` 与 secret）：
+
+| 项 | 来源 |
+|---|---|
+| `database_id` / KV id | `wrangler d1 create` / `kv namespace create` |
+| `PRISM_ISSUER` / `PRISM_CLIENT_ID` / `PRISM_TEAM_ID` | Prism 实例运营方 |
+| `PRISM_CLIENT_SECRET` | 同上，用 `wrangler secret put` |
+| `MOD_LICENSE_PRIVATE_KEY` | 自行生成 RSA 密钥对，公钥内置模组 |
+| `WEBHOOK_SECRET` | 自定，同时配到 Prism 的团队 webhook header |
+
+**官网应用必须创建在 NSUK 团队名下** —— 通过团队邀请链接注册的受限账号只能授权
+来源团队及其后代拥有的应用，建在个人名下会导致这批用户在授权阶段被静默拒绝。
+
+Prism 侧的 webhook 需要配置 general 类型，body 模板：
+
+```json
+{"event":"{event}","resource_id":"{resource_id}","scope_id":"{scope_id}","metadata":{metadata},"timestamp":"{timestamp}"}
+```
+
+订阅事件：`team.member.groups_change`、`team.member.remove`、`team.group.delete`。
 
 官网不提供任何修改用户角色的入口 —— 角色由 Prism 团队身份组派生。

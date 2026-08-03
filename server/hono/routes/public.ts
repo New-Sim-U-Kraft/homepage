@@ -123,4 +123,102 @@ r.get('/developers/:slug', async (c) => {
   })
 })
 
+/**
+ * 公开个人主页。
+ *
+ * 注意不要链到 Prism 的 /u/<username>：NSUK 用户绝大多数是通过团队邀请
+ * 链接注册的受限账号，其 profile:public 能力默认关闭，那个页面会返回 404。
+ * 展示位只能是本站自建的这个。
+ */
+r.get('/users/:username', async (c) => {
+  const username = c.req.param('username') ?? ''
+
+  const row = await c.env.DB.prepare(
+    `SELECT u.sub, u.username, u.display_name, u.avatar_override, u.intro, u.cover,
+            u.developer_slug, u.role_key, u.created_at, r.name AS role_name, r.level
+       FROM users u JOIN roles r ON r.role_key = u.role_key
+      WHERE u.username = ? AND u.deleted_at IS NULL`,
+  )
+    .bind(username)
+    .first<{
+      sub: string
+      username: string
+      display_name: string
+      avatar_override: string
+      intro: string
+      cover: string
+      developer_slug: string
+      role_key: string
+      role_name: string
+      level: number
+      created_at: string
+    }>()
+
+  if (!row) return c.json({ ok: false, error: '用户不存在' }, 404)
+
+  const { results: works } = await c.env.DB.prepare(
+    `SELECT id, title, category, files FROM workshop_items
+      WHERE author_sub = ? AND status = 'published'
+      ORDER BY published_at DESC LIMIT 12`,
+  )
+    .bind(row.sub)
+    .all<{ id: string; title: string; category: string; files: string }>()
+
+  return c.json({
+    ok: true,
+    user: {
+      username: row.username,
+      displayName: row.display_name || row.username,
+      avatar: row.avatar_override,
+      intro: row.intro,
+      cover: row.cover,
+      developerSlug: row.developer_slug,
+      roleKey: row.role_key,
+      roleName: row.role_name,
+      level: row.level,
+      joinedAt: row.created_at,
+    },
+    works: works.map((w) => ({
+      id: w.id,
+      title: w.title,
+      category: w.category,
+      cover:
+        parseJson<{ cover?: string | null }>(w.files, {}, `workshop.${w.id}.files`).cover ?? null,
+    })),
+  })
+})
+
+/**
+ * 画廊：已发布作品的图片汇总。
+ *
+ * 不另建表 —— 画廊本质上就是工坊作品的图片视图，两份数据会不同步。
+ */
+r.get('/gallery', async (c) => {
+  const { limit, offset } = parsePaging(c.req.query(), 60)
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, title, files FROM workshop_items
+      WHERE status = 'published'
+      ORDER BY published_at DESC LIMIT ? OFFSET ?`,
+  )
+    .bind(limit, offset)
+    .all<{ id: string; title: string; files: string }>()
+
+  const images: { url: string; title: string; workshopId: string }[] = []
+  for (const row of results) {
+    const files = parseJson<{ images?: { url: string }[] }>(
+      row.files,
+      {},
+      `workshop.${row.id}.files`,
+    )
+    for (const img of files.images ?? []) {
+      if (typeof img?.url === 'string' && img.url) {
+        images.push({ url: img.url, title: row.title, workshopId: row.id })
+      }
+    }
+  }
+
+  return c.json({ ok: true, images })
+})
+
 export default r
