@@ -4,6 +4,8 @@ import { Hono } from 'hono'
 import type { AppBindings, Env } from './types'
 import modRoutes from './routes/mod'
 import authRoutes from './routes/auth'
+import publicRoutes from './routes/public'
+import workshopRoutes from './routes/workshop'
 
 const app = new Hono<AppBindings>().basePath('/api')
 
@@ -69,8 +71,11 @@ app.get('/_ping', async (c) => {
 
 // ─── 业务路由 ───
 
+// 更具体的前缀先挂，公开内容路由挂在 /api 根上
 app.route('/auth', authRoutes)
 app.route('/mod', modRoutes)
+app.route('/workshop', workshopRoutes)
+app.route('/', publicRoutes)
 
 app.all('*', (c) => c.json({ ok: false, error: 'Not Found' }, 404))
 
