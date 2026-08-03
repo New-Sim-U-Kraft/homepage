@@ -1,20 +1,28 @@
 /// <reference types="@cloudflare/workers-types" />
 
-/** Worker 绑定，与 wrangler.toml 一一对应 */
+/** Worker 绑定与配置，与 wrangler.toml 一一对应 */
 export interface Env {
   DB: D1Database
   KV: KVNamespace
   R2: R2Bucket
   ASSETS: Fetcher
 
-  // secrets / vars（名称与 nuxt.config 的 runtimeConfig 映射一致）
-  NUXT_PRISM_CLIENT_SECRET?: string
-  NUXT_MOD_LICENSE_PRIVATE_KEY?: string
-  NUXT_WEBHOOK_SECRET?: string
-  NUXT_PUBLIC_SITE_URL?: string
+  // ─── vars ───
+  SITE_URL?: string
+  PRISM_ISSUER?: string
+  PRISM_CLIENT_ID?: string
+  /** NSUK 团队 ID，用于读取 groups_in_team_<id> / in_team_<id> claim */
+  PRISM_TEAM_ID?: string
+  /** 团队邀请链接注册入口，形如 https://<prism>/join/<teamId> */
+  PRISM_JOIN_URL?: string
+
+  // ─── secrets ───
+  PRISM_CLIENT_SECRET?: string
+  MOD_LICENSE_PRIVATE_KEY?: string
+  WEBHOOK_SECRET?: string
 }
 
-/** 登录用户，由 D 组的会话中间件填充 */
+/** 登录用户。身份来自 Prism，role 由团队身份组派生 */
 export interface SessionUser {
   sub: string
   username: string

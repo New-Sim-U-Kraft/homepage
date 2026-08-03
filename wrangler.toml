@@ -35,10 +35,16 @@ binding = "R2"
 bucket_name = "nsuk-uploads"
 
 # ---- 非敏感变量 ----
+# Prism 侧的值待运营方提供：应用必须创建在 NSUK 团队名下，
+# 否则受限账号（通过 /join/<teamId> 注册的用户）在 /authorize 阶段会被拒。
 [vars]
-NUXT_PUBLIC_SITE_URL = "https://nsuk.example"
+SITE_URL = "https://nsuk.example"
+PRISM_ISSUER = ""
+PRISM_CLIENT_ID = ""
+PRISM_TEAM_ID = ""
+PRISM_JOIN_URL = ""
 
 # ---- secrets（用命令写入，不入库）----
-# wrangler secret put NUXT_PRISM_CLIENT_SECRET
-# wrangler secret put NUXT_MOD_LICENSE_PRIVATE_KEY
-# wrangler secret put NUXT_WEBHOOK_SECRET
+# wrangler secret put PRISM_CLIENT_SECRET
+# wrangler secret put MOD_LICENSE_PRIVATE_KEY
+# wrangler secret put WEBHOOK_SECRET

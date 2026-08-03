@@ -13,9 +13,9 @@ const app = new Hono<AppBindings>().basePath('/api')
 function maskSecrets(input: unknown, env: Env | undefined): string {
   let out = String(input ?? '')
   const keys: (keyof Env)[] = [
-    'NUXT_PRISM_CLIENT_SECRET',
-    'NUXT_MOD_LICENSE_PRIVATE_KEY',
-    'NUXT_WEBHOOK_SECRET',
+    'PRISM_CLIENT_SECRET',
+    'MOD_LICENSE_PRIVATE_KEY',
+    'WEBHOOK_SECRET',
   ]
   for (const k of keys) {
     const v = env?.[k]
