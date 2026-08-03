@@ -143,6 +143,50 @@ r.get('/workshop', requireCap(CAPS.WORKSHOP_REVIEW), async (c) => {
   })
 })
 
+/**
+ * 审核员下载投稿的结构文件（设计条目 W7）。
+ *
+ * 这是站内唯一能取到结构文件本体的入口 —— 公开的 /uploads 白名单不含它。
+ * 目的是核对「上传的文件」与「站外链接里的文件」是否一致，因此每次下载
+ * 都写审计。
+ */
+r.get('/workshop/:id/file/:index', requireCap(CAPS.WORKSHOP_REVIEW), async (c) => {
+  const user = c.get('user')!
+  const id = c.req.param('id') ?? ''
+  const index = Number(c.req.param('index') ?? -1)
+
+  const row = await c.env.DB.prepare('SELECT files FROM workshop_items WHERE id = ?')
+    .bind(id)
+    .first<{ files: string }>()
+  if (!row) return c.json({ ok: false, error: '作品不存在' }, 404)
+
+  const files = parseJson<{ items?: { name: string; kind: string; key?: string }[] }>(
+    row.files,
+    {},
+    `workshop.${id}.files`,
+  )
+  const target = files.items?.[index]
+  if (!target?.key) return c.json({ ok: false, error: '文件不存在' }, 404)
+
+  const obj = await c.env.R2.get(target.key)
+  if (!obj) return c.json({ ok: false, error: '文件已丢失' }, 404)
+
+  await recordAudit(c.env.DB, {
+    actor: user.sub,
+    action: 'workshop.file.download',
+    target: id,
+    detail: { name: target.name },
+  })
+
+  return new Response(obj.body, {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(target.name)}"`,
+      'Cache-Control': 'no-store',
+    },
+  })
+})
+
 r.patch('/workshop/:id', requireCap(CAPS.WORKSHOP_REVIEW), async (c) => {
   const user = c.get('user')!
   const id = c.req.param('id')

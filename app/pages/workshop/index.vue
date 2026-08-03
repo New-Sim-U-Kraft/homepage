@@ -11,11 +11,14 @@ const { data } = await useFetch<{
 
 <template>
   <div class="mx-auto max-w-5xl px-6 py-12">
-    <header class="mb-8">
-      <h1 class="text-2xl font-bold">创意工坊</h1>
-      <p class="mt-2 text-sm text-(--ui-text-muted)">
-        站内提供在线预览，下载请使用作品页提供的站外链接。
-      </p>
+    <header class="mb-8 flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold">创意工坊</h1>
+        <p class="mt-2 text-sm text-(--ui-text-muted)">
+          站内提供在线预览，下载请使用作品页提供的站外链接。
+        </p>
+      </div>
+      <UButton to="/workshop/submit" variant="subtle">投稿</UButton>
     </header>
 
     <div v-if="data?.items?.length" class="grid gap-4 sm:grid-cols-2">
