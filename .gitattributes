@@ -1,0 +1,28 @@
+# 仓库内一律以 LF 存储，检出时由各人的 core.autocrlf 决定。
+# 不统一的话，Windows 开发者提交的文件在 Linux CI 上会带 CR，
+# 触发 ESLint / Prettier 的行尾报错，也让 diff 变得不可读。
+* text=auto eol=lf
+
+# Shell 脚本必须是 LF，否则在 Linux 上报 bad interpreter
+*.sh   text eol=lf
+*.mjs  text eol=lf
+
+# Windows 批处理保持 CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 二进制，不做任何转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.avif binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.nbt  binary
+*.zip  binary
+
+# 锁文件不参与 diff 审阅
+pnpm-lock.yaml -diff
