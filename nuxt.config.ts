@@ -14,9 +14,11 @@ export default defineNuxtConfig({
 
   // 图标本地打包，不走 iconify 的远程 API：
   // 线上多一次外部请求既慢又多一个依赖点，网络不畅时图标直接不显示。
+  // provider 必须是 'server'（'iconify' 恰恰是走远程的那个选项）。
   icon: {
-    provider: 'iconify',
+    provider: 'server',
     serverBundle: { collections: ['lucide'] },
+    clientBundle: { scan: true },
   },
 
   devtools: { enabled: true },

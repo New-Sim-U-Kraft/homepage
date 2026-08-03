@@ -107,6 +107,84 @@ function colorOf(name: string): THREE.Color {
 
 const TRANSPARENT = /(glass|ice|leaves|water|pane|vine)/i
 
+// ─── 纹理图集 ───
+// 由 scripts/build-atlas.mjs 在构建期生成。加载失败时整体回退到纯色渲染，
+// 不让预览直接不可用。
+interface Atlas {
+  width: number
+  height: number
+  cell: number
+  pad: number
+  tile: number
+  index: Record<string, [number, number]>
+  /** 方块名 → [上, 侧, 下] 三个纹理名 */
+  blocks: Record<string, [string, string, string]>
+}
+
+let atlas: Atlas | null = null
+let atlasTexture: THREE.Texture | null = null
+
+async function loadAtlas(): Promise<void> {
+  try {
+    const [meta, texture] = await Promise.all([
+      $fetch<Atlas>('/mc/atlas.json'),
+      new Promise<THREE.Texture>((resolve, reject) => {
+        new THREE.TextureLoader().load('/mc/atlas.png', resolve, undefined, reject)
+      }),
+    ])
+    // 像素风：不做插值也不生成 mipmap，后者会在缩小时把邻格颜色混进来
+    texture.magFilter = THREE.NearestFilter
+    texture.minFilter = THREE.NearestFilter
+    texture.generateMipmaps = false
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.needsUpdate = true
+    atlas = meta
+    atlasTexture = texture
+  } catch {
+    atlas = null
+    atlasTexture = null
+  }
+}
+
+/**
+ * 把图集坐标烘焙进 BoxGeometry 的 uv 属性。
+ *
+ * 这样六个面各用各的纹理，却仍然只需要一个材质 —— 换成材质数组的话
+ * three.js 会按 group 拆成六次绘制。
+ *
+ * BoxGeometry 的面序：+X −X +Y −Y +Z −Z，每面 4 个顶点。
+ */
+function bakeUv(geometry: THREE.BoxGeometry, name: string): boolean {
+  if (!atlas) return false
+  const faces = atlas.blocks[name]
+  if (!faces) return false
+
+  const [top, side, bottom] = faces
+  const perFace = [side, side, top, bottom, side, side]
+  const uv = geometry.attributes.uv as THREE.BufferAttribute
+  const { cell, pad, tile, width, height } = atlas
+
+  for (let f = 0; f < 6; f++) {
+    const at = atlas.index[perFace[f]!]
+    if (!at) return false
+    const [col, row] = at
+    const u0 = (col * cell + pad) / width
+    const u1 = (col * cell + pad + tile) / width
+    // 图片行自上而下，UV 原点在左下，v 要翻转
+    const v1 = 1 - (row * cell + pad) / height
+    const v0 = 1 - (row * cell + pad + tile) / height
+
+    for (let i = 0; i < 4; i++) {
+      const idx = f * 4 + i
+      const lu = uv.getX(idx)
+      const lv = uv.getY(idx)
+      uv.setXY(idx, u0 + lu * (u1 - u0), v0 + lv * (v1 - v0))
+    }
+  }
+  uv.needsUpdate = true
+  return true
+}
+
 // ─── 构建场景 ───
 function build(m: Model) {
   if (!scene) return
@@ -131,21 +209,28 @@ function build(m: Model) {
   const ox = -(sx - 1) / 2
   const oy = -(sy - 1) / 2
   const oz = -(sz - 1) / 2
-  const geometry = new THREE.BoxGeometry(1, 1, 1)
   const matrix = new THREE.Matrix4()
 
   for (const [state, indices] of byState) {
     const name = m.palette[state] ?? 'unknown'
     const transparent = TRANSPARENT.test(name)
+
+    // 每种方块一份几何体：UV 烘焙是逐方块的，不能共用
+    const geometry = new THREE.BoxGeometry(1, 1, 1)
+    const textured = bakeUv(geometry, name)
+
     const material = new THREE.MeshStandardMaterial({
-      color: colorOf(name),
-      roughness: 0.95,
-      metalness: 0.02,
+      // 图集缺这个方块时回退到纯色，总比空白强
+      ...(textured && atlasTexture
+        ? { map: atlasTexture, alphaTest: transparent ? 0.5 : 0 }
+        : { color: colorOf(name) }),
+      roughness: 1,
+      metalness: 0,
       transparent,
-      opacity: transparent ? 0.55 : 1,
+      opacity: transparent && !textured ? 0.55 : 1,
     })
 
-    const mesh = new THREE.InstancedMesh(geometry.clone(), material, indices.length)
+    const mesh = new THREE.InstancedMesh(geometry, material, indices.length)
     indices.forEach((idx, n) => {
       matrix.makeTranslation(
         m.blocks[idx * 4]! + ox,
@@ -172,7 +257,11 @@ function computeStats(m: Model) {
 }
 
 async function init() {
-  const res = await fetch(`/api/workshop/${props.workshopId}/preview`)
+  // 图集与模型并行取，图集失败不阻塞渲染（回退纯色）
+  const [res] = await Promise.all([
+    fetch(`/api/workshop/${props.workshopId}/preview`),
+    loadAtlas(),
+  ])
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string }
     state.value = res.status === 404 ? 'empty' : 'error'
