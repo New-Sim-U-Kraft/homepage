@@ -69,6 +69,7 @@ schema 只通过 `migrations/` 下的有序文件演进，**不在请求路径�
 
 ## 文档
 
+- [部署](docs/deployment.md) —— 从零上线的完整步骤与验证清单
 - [模组授权设计](docs/mod-authorization.md)
 
 ## 进度
