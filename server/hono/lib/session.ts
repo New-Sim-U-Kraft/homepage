@@ -68,6 +68,23 @@ export async function destroySession(kv: KVNamespace, token: string): Promise<vo
   if (data?.sub) await kv.delete(`usess:${data.sub}:${h}`)
 }
 
+/**
+ * 取该用户任一可用的 refresh token。
+ *
+ * webhook 回查时用：Prism 的 audit webhook 无签名且不可重试，payload 不能
+ * 直接信，拿到 refresh token 才能主动向 Prism 核实真实身份组。
+ * 用户从未登录过网页（或会话已过期）时返回 null，此时只能退而信任 payload。
+ */
+export async function anyRefreshToken(kv: KVNamespace, sub: string): Promise<string | null> {
+  const listed = await kv.list({ prefix: `usess:${sub}:`, limit: 10 })
+  for (const k of listed.keys) {
+    const h = k.name.slice(`usess:${sub}:`.length)
+    const data = await kv.get<SessionData>(`session:${h}`, 'json')
+    if (data?.refreshToken) return data.refreshToken
+  }
+  return null
+}
+
 /** 踢掉某用户的全部会话。掉组、账号注销、管理员操作时调用 */
 export async function destroySessionsForUser(kv: KVNamespace, sub: string): Promise<void> {
   let cursor: string | undefined

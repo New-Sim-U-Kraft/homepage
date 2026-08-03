@@ -6,6 +6,7 @@ import modRoutes from './routes/mod'
 import authRoutes from './routes/auth'
 import publicRoutes from './routes/public'
 import workshopRoutes from './routes/workshop'
+import hookRoutes from './routes/hooks'
 
 const app = new Hono<AppBindings>().basePath('/api')
 
@@ -75,6 +76,7 @@ app.get('/_ping', async (c) => {
 app.route('/auth', authRoutes)
 app.route('/mod', modRoutes)
 app.route('/workshop', workshopRoutes)
+app.route('/hooks', hookRoutes)
 app.route('/', publicRoutes)
 
 app.all('*', (c) => c.json({ ok: false, error: 'Not Found' }, 404))
