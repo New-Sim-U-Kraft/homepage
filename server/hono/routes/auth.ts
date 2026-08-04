@@ -155,7 +155,21 @@ r.get('/callback', async (c) => {
       maxAge: SESSION_TTL_SEC,
     })
 
-    console.log('[auth] 登录', claims.sub, 'role=', roleKey, 'member=', isTeamMember(claims, cfg.teamId))
+    const member = isTeamMember(claims, cfg.teamId)
+    console.log('[auth] 登录', claims.sub, 'role=', roleKey, 'member=', member)
+
+    // 一条极易踩空的配置：Prism 的团队应用创建接口会把 teams:read 从
+    // allowed_scopes 里过滤掉（只接受 openid/profile/email/apps:read/offline_access），
+    // 必须在应用详情页补勾后保存才生效。没配上的表现是所有人都登进来但一律是
+    // 游客 —— 没有任何报错，很难联想到 scope 上，所以这里显式点破。
+    if (!Object.keys(claims).some((k) => k.startsWith('in_team_'))) {
+      console.warn(
+        '[auth] ID token 里没有任何 in_team_* claim。' +
+          '应用的 allowed_scopes 很可能缺少 teams:read —— ' +
+          '团队应用创建接口会过滤掉它，需到应用详情页补勾并保存。' +
+          '未修复前所有用户都会是游客。',
+      )
+    }
 
     return c.redirect(`${site}${pending.redirect}`, 302)
   } catch (e) {

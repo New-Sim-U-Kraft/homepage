@@ -28,15 +28,42 @@ wrangler r2 bucket create nsuk-uploads
 
 | 项 | 值 |
 |---|---|
-| 客户端类型 | 机密 |
-| 重定向 URI | `https://<官网域名>/api/auth/callback`（匹配方式：等于） |
+| 客户端类型 | 机密（不勾「公共客户端」） |
+| 重定向 URI | `https://<官网域名>/api/auth/callback` |
 | 追加重定向 URI | `http://127.0.0.1:3000/api/auth/callback`（本地开发） |
-| allowed_scopes | `openid` `profile` `email` `offline_access` `teams:read` |
+| allowed_scopes | `openid` `profile` `email` `offline_access` |
 
-`teams:read` 是过度授权（会带上用户所有团队的 membership claim），但在 Prism 的
+### ⚠️ 建完必须再补一步：勾上 `teams:read`
+
+**创建时勾 `teams:read` 是无效的。** 团队应用创建端点
+（`POST /api/teams/:id/apps`）对 scope 做了硬编码过滤：
+
+```js
+.filter((s) => ["openid","profile","email","apps:read","offline_access"].includes(s))
+```
+
+`teams:read` 不在里面，会被**静默丢弃** —— 界面上勾了、保存成功、没有任何报错，
+但它就是没写进去。
+
+正确做法是**创建完再改一次**：进应用详情页 → Scopes → 勾上 `teams:read` → 保存。
+更新走的是 `PATCH /api/apps/:id`，那里用的是宽松的 `isAllowedScope`，允许该 scope。
+改动需要**团队 admin 及以上**权限。
+
+也可以用 API：
+
+```bash
+curl -X PATCH https://<prism>/api/apps/<appId> \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"allowed_scopes":["openid","profile","email","offline_access","teams:read"]}'
+```
+
+**没配上的表现**：所有人都能登录，但一律是游客，赞助者拿不到模组令牌，
+且没有任何报错。官网对此有专门的诊断日志 ——
+如果 Worker 日志里出现 `ID token 里没有任何 in_team_* claim`，就是这个问题。
+
+**关于过度授权**：`teams:read` 会带上用户全部团队的 membership claim。在 Prism 的
 P1（应用预绑定团队的窄 scope）落地前没有更窄的选择 —— 单团队 scope 要求授权者是
-团队 admin 以上，普通赞助者授不了。P1 上线后把 scope 换掉即可，官网侧只读
-`groups_in_team_<id>`，不依赖其余 claim。
+团队 admin 以上，普通赞助者授不了。官网只读 `groups_in_team_<NSUK>`，其余一概忽略。
 
 ### 团队身份组
 
