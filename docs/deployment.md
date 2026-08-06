@@ -33,33 +33,15 @@ wrangler r2 bucket create nsuk-uploads
 | 追加重定向 URI | `http://127.0.0.1:3000/api/auth/callback`（本地开发） |
 | allowed_scopes | `openid` `profile` `email` `offline_access` |
 
-### ⚠️ 建完必须再补一步：勾上 `teams:read`
+`teams:read` 在创建时直接勾上即可。
 
-**创建时勾 `teams:read` 是无效的。** 团队应用创建端点
-（`POST /api/teams/:id/apps`）对 scope 做了硬编码过滤：
+> 若 Prism 实例早于 `4fcf53b`，团队应用创建端点会把 `teams:read` 静默丢弃
+> （界面上勾了、保存成功、无报错，但没写进去）。这种情况需要建完后进应用详情页
+> 再勾一次保存 —— 更新走 `PATCH /api/apps/:id`，不受该限制。
 
-```js
-.filter((s) => ["openid","profile","email","apps:read","offline_access"].includes(s))
-```
-
-`teams:read` 不在里面，会被**静默丢弃** —— 界面上勾了、保存成功、没有任何报错，
-但它就是没写进去。
-
-正确做法是**创建完再改一次**：进应用详情页 → Scopes → 勾上 `teams:read` → 保存。
-更新走的是 `PATCH /api/apps/:id`，那里用的是宽松的 `isAllowedScope`，允许该 scope。
-改动需要**团队 admin 及以上**权限。
-
-也可以用 API：
-
-```bash
-curl -X PATCH https://<prism>/api/apps/<appId> \
-  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
-  -d '{"allowed_scopes":["openid","profile","email","offline_access","teams:read"]}'
-```
-
-**没配上的表现**：所有人都能登录，但一律是游客，赞助者拿不到模组令牌，
-且没有任何报错。官网对此有专门的诊断日志 ——
-如果 Worker 日志里出现 `ID token 里没有任何 in_team_* claim`，就是这个问题。
+**漏配的表现**：所有人都能登录，但一律是游客，赞助者拿不到模组令牌，且没有任何
+报错。官网对此有专门的诊断 —— Worker 日志出现
+`ID token 里没有任何 in_team_* claim` 就是这个问题。
 
 **关于过度授权**：`teams:read` 会带上用户全部团队的 membership claim。在 Prism 的
 P1（应用预绑定团队的窄 scope）落地前没有更窄的选择 —— 单团队 scope 要求授权者是
@@ -183,6 +165,53 @@ wrangler secret put PRISM_CLIENT_SECRET
 wrangler secret put MOD_LICENSE_PRIVATE_KEY
 wrangler secret put WEBHOOK_SECRET
 ```
+
+## 四点五、先在本地跑通（强烈建议）
+
+登录链路涉及 Prism、回调地址、scope、身份组映射四处配合，任何一处错了线上都
+只表现为「登录后是游客」。在本地把它跑通，比部署完再回头查便宜得多。
+
+前提：第 1.2 步的重定向 URI 里已经加了 `http://127.0.0.1:3000/api/auth/callback`。
+
+```bash
+cp .dev.vars.example .dev.vars
+```
+
+`.dev.vars` 里填上真实值（这个文件已在 `.gitignore` 中）：
+
+```
+PRISM_CLIENT_SECRET="…"
+MOD_LICENSE_PRIVATE_KEY="…"
+WEBHOOK_SECRET="…"
+PRISM_ISSUER="https://<prism 域名>"
+PRISM_CLIENT_ID="…"
+PRISM_TEAM_ID="…"
+SITE_URL="http://localhost:3000"
+```
+
+`SITE_URL` 必须是 `http://localhost:3000` —— 它同时决定回调地址的拼法和
+cookie 的 `Secure` 标志，填成 https 的话本地浏览器不会存 cookie，登录会静默失败。
+
+```bash
+pnpm db:migrate:local
+pnpm dev
+```
+
+浏览器打开 <http://localhost:3000/account> → 用 Prism 登录，逐项确认：
+
+- [ ] 能跳到 Prism 授权页并跳回来
+- [ ] 账号中心显示的身份组与 Prism 里给你打的组一致
+- [ ] 终端日志**没有** `没有任何 in_team_* claim`
+- [ ] 给自己打上 `sponsor` 组 → 重新登录 → 模组授权区出现，能生成令牌
+- [ ] 拿生成的令牌调一次 validate，应返回 License：
+
+```bash
+curl -X POST http://localhost:3000/api/mod/validate \
+  -H "Content-Type: application/json" \
+  -d '{"token":"<刚生成的令牌>","fingerprint":"local-test"}'
+```
+
+webhook 本地收不到（Prism 打不到 localhost），留到线上验。
 
 ## 五、建表与部署
 
