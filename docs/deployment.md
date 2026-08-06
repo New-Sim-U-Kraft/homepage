@@ -218,12 +218,52 @@ webhook 本地收不到（Prism 打不到 localhost），留到线上验。
 
 ## 五、建表与部署
 
+### 5.1 建表（**必须手动，自动部署不会做**）
+
 ```bash
+pnpm install
 pnpm db:migrate:remote
+```
+
+在本地跑，通过 wrangler 连远程 D1。**Cloudflare 的 Git 自动部署只做构建与发布，
+不会执行数据库迁移** —— 漏了这步部署照样成功，但接口一碰数据库就 500，
+`/api/_ping` 会返回 `dbError: true`。
+
+以后每次新增 migration 文件，合并后也都要手动跑一次。
+
+不需要迁移旧数据 —— 旧库已放弃，空库起步。
+
+### 5.2 部署
+
+**方式 A：GitHub + Cloudflare 自动部署（当前采用）**
+
+Dashboard → Workers → 该 Worker → Settings → Build：
+
+| 项 | 值 |
+|---|---|
+| Git repository | `New-Sim-U-Kraft/homepage` |
+| Branch | `refactor/homepage`（正式切换后改 `main`） |
+| Build command | `pnpm build` |
+| Deploy command | `npx wrangler deploy` |
+| Root directory | 留空 |
+
+仓库有 `pnpm-lock.yaml` 与 `packageManager` 字段，Cloudflare 会自动选用 pnpm。
+
+两点需要知道：
+
+- **纹理图集是入库的**（`public/mc/`，约 240KB）。生成它需要 `sharp` +
+  `minecraft-assets` 两个重包，放进 CI 会让每次部署白装几十 MB，而产物本身很小。
+  所以 `pnpm build` **不生成图集**，只在更新 Minecraft 版本时手动
+  `pnpm atlas` 并提交产物。
+- secret 独立存储，不随部署更新；`[vars]` 则跟着 `wrangler.toml` 一起生效。
+
+**方式 B：本地手动部署**
+
+```bash
 pnpm deploy
 ```
 
-不需要迁移旧数据 —— 旧库已放弃，空库起步。
+两种方式可混用，同一个 Worker。
 
 ### 第一个管理员
 

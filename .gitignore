@@ -43,8 +43,10 @@ debug-*.md
 # 数据文件（历史遗留，不再入库）
 data/
 
-# 构建期生成的 Minecraft 资源（由 scripts/build-atlas.mjs 产出）
-public/mc/
+# 注意：public/mc/ 的图集产物**是入库的**（约 240KB）。
+# 它由 scripts/build-atlas.mjs 生成，但生成依赖 sharp + minecraft-assets 两个重包，
+# 放进 CI 会让每次自动部署都白装几十 MB。产物本身很小，直接提交更划算。
+# 更新 Minecraft 版本时手动跑 `pnpm atlas` 重新生成并提交。
 public/vendor/mc/
 app/public/vendor/mc/
 .playwright-mcp/
