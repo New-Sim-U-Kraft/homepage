@@ -57,6 +57,114 @@
   color-scheme: light;
 }
 
+/* =============================================================
+   悼念模式（2026-08-06 起）
+   开发者梦蓝（menglannnn）逝世，全站转为灰度以示追思。
+   恢复站点原貌时，整块删除本段即可（另需移除 index.html 中的
+   .memorial-band 区块）。
+   注意：灰度作用于 body 的直接子元素，而不是 html / body 本身。
+   若把 filter 加在 html/body 上，会为后代生成新的包含块，
+   使 .modal / .page-transition / .profile-sky 等 position: fixed
+   元素改为相对该祖先定位，滚动后出现错位。
+   ============================================================= */
+body > *,
+body::before,
+body::after {
+  filter: grayscale(1) !important;
+}
+
+/* body 自身不能加 filter（同样会破坏 fixed 定位），改用亮度混合把
+   背景渐变去色：各背景层与中性灰按 luminosity 混合，只保留明暗。
+   这样开发者主页（developer.css / developer.js 动态注入的背景）
+   也能一并变灰。 */
+body {
+  background-color: #808080 !important;
+  background-blend-mode: luminosity !important;
+}
+
+.memorial-band {
+  padding: 26px 18px 0;
+}
+
+.memorial {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 22px 26px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--text);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.memorial__mark {
+  font-size: 30px;
+  line-height: 1.2;
+  opacity: 0.8;
+  flex: none;
+}
+
+.memorial__body {
+  min-width: 0;
+}
+
+.memorial__kicker {
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.memorial__title {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.memorial__text {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.9;
+}
+
+.memorial__sign {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* 品牌黄灰化后在浅色底上几乎不可见，这里改用正文色保证对比度。 */
+.memorial .link {
+  color: var(--text);
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+@media (max-width: 720px) {
+  .memorial {
+    padding: 18px 18px;
+    gap: 12px;
+  }
+
+  .memorial__title {
+    font-size: 18px;
+  }
+
+  .memorial__text {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
