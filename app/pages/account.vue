@@ -1,7 +1,7 @@
 <script setup lang="ts">
 useHead({ title: '账号 · NSUK' })
 
-const { user, configured, joinUrl, needsJoin, roleLabel, level, login } = useAuth()
+const { user, configured, failed, joinUrl, needsJoin, roleLabel, level, login } = useAuth()
 const route = useRoute()
 
 /** 回调失败时会带 ?error= 回来 */
@@ -36,11 +36,23 @@ const ERROR_TEXT: Record<string, string> = {
         本站账号由 Prism 提供，模组令牌与设备绑定也在这里管理。
       </p>
       <UButton v-if="configured" class="mt-6" @click="login('/account')">使用 Prism 登录</UButton>
+
+      <!-- 服务端没答上来，与「没配」是两回事，别把人指向错误的方向 -->
+      <UAlert
+        v-else-if="failed"
+        class="mt-6"
+        color="error"
+        variant="subtle"
+        title="无法获取登录状态"
+        description="服务端暂时没有响应，请刷新重试。若持续如此，请查看 Worker 日志。"
+      />
+
       <div
         v-else
         class="mt-6 rounded-(--ui-radius) border border-dashed border-(--ui-border) p-8 text-sm text-(--ui-text-dimmed)"
       >
-        登录尚未配置（等待 Prism 侧提供应用凭据）。
+        登录尚未配置：Prism 应用凭据不完整。可访问
+        <code class="font-mono">/api/_ping</code> 查看缺少哪一项。
       </div>
     </template>
 

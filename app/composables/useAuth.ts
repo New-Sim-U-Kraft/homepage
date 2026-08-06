@@ -25,12 +25,24 @@ const ROLE_LABEL: Record<string, string> = {
 }
 
 export function useAuth() {
-  const state = useState<MeResponse | null>('auth:me', () => null)
+  const state = useState<MeResponse | null>('auth:state', () => null)
+  /**
+   * 接口取不到时不能与「未配置」混为一谈：两者都会让 configured 为 false，
+   * 但一个要用户去配 secret，另一个是服务端出错，指错方向会白白浪费排查时间。
+   */
+  const failed = useState<boolean>('auth:failed', () => false)
 
   async function load() {
-    const data = await $fetch<MeResponse>('/api/auth/me').catch(() => null)
-    state.value = data
-    return data
+    try {
+      const data = await $fetch<MeResponse>('/api/auth/me')
+      state.value = data
+      failed.value = false
+      return data
+    } catch (e) {
+      console.error('[auth] 获取登录态失败', e)
+      failed.value = true
+      return null
+    }
   }
 
   const user = computed(() => state.value?.user ?? null)
@@ -56,5 +68,17 @@ export function useAuth() {
     reloadNuxtApp()
   }
 
-  return { state, user, configured, joinUrl, level, roleLabel, needsJoin, load, login, logout }
+  return {
+    state,
+    failed,
+    user,
+    configured,
+    joinUrl,
+    level,
+    roleLabel,
+    needsJoin,
+    load,
+    login,
+    logout,
+  }
 }
