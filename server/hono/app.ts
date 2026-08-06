@@ -59,9 +59,30 @@ app.onError((err, c) => {
 app.get('/healthz', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 
 app.get('/_ping', async (c) => {
+  // 只报告「是否已设置」，绝不回显任何值 —— 这是个公开端点。
+  // 登录链路要求 issuer/clientId/clientSecret/teamId 四项俱全，缺一项就整体
+  // 降级为「登录未配置」，不这样列出来的话没法判断到底缺哪个。
+  const config = {
+    PRISM_ISSUER: !!c.env?.PRISM_ISSUER,
+    PRISM_CLIENT_ID: !!c.env?.PRISM_CLIENT_ID,
+    PRISM_CLIENT_SECRET: !!c.env?.PRISM_CLIENT_SECRET,
+    PRISM_TEAM_ID: !!c.env?.PRISM_TEAM_ID,
+    PRISM_JOIN_URL: !!c.env?.PRISM_JOIN_URL,
+    SITE_URL: !!c.env?.SITE_URL,
+    MOD_LICENSE_PRIVATE_KEY: !!c.env?.MOD_LICENSE_PRIVATE_KEY,
+    WEBHOOK_SECRET: !!c.env?.WEBHOOK_SECRET,
+  }
+
   const out: Record<string, unknown> = {
     bindings: { DB: !!c.env?.DB, KV: !!c.env?.KV, R2: !!c.env?.R2 },
+    config,
+    loginConfigured:
+      config.PRISM_ISSUER &&
+      config.PRISM_CLIENT_ID &&
+      config.PRISM_CLIENT_SECRET &&
+      config.PRISM_TEAM_ID,
   }
+
   try {
     const r = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM roles').first<{ n: number }>()
     out.roles = r?.n ?? 0
