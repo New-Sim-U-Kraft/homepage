@@ -20,9 +20,9 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "db:migrate:local": "wrangler d1 migrations apply nsuk --local",
-    "db:migrate:remote": "wrangler d1 migrations apply nsuk --remote",
-    "db:seed:local": "wrangler d1 execute nsuk --local --file scripts/seed.sql"
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:seed:local": "wrangler d1 execute DB --local --file scripts/seed.sql"
   },
   "dependencies": {
     "@nuxt/ui": "^4.10.0",

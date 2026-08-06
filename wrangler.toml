@@ -18,33 +18,37 @@ binding = "ASSETS"
 # 创建：wrangler d1 create nsuk  然后把返回的 id 填进来。
 [[d1_databases]]
 binding = "DB"
-database_name = "nsuk"
-database_id = "TODO_RUN_WRANGLER_D1_CREATE"
+database_name = "nsuk-new"
+database_id = "2375ae81-0766-416d-8d6f-6ece1e5150a6"
 migrations_dir = "migrations"
 
 # ---- KV：会话、JWKS 缓存、License 吊销名单、验证码 ----
 # 创建：wrangler kv namespace create KV
 [[kv_namespaces]]
 binding = "KV"
-id = "TODO_RUN_WRANGLER_KV_CREATE"
+id = "eefa86e85017434a916a6d7164757024"
 
 # ---- R2：上传文件 ----
 # 创建：wrangler r2 bucket create nsuk-uploads
 [[r2_buckets]]
 binding = "R2"
-bucket_name = "nsuk-uploads"
+bucket_name = "nsuk-uploads-new"
 
 # ---- 非敏感变量 ----
 # Prism 侧的值待运营方提供：应用必须创建在 NSUK 团队名下，
 # 否则受限账号（通过 /join/<teamId> 注册的用户）在 /authorize 阶段会被拒。
 [vars]
-SITE_URL = "https://nsuk.example"
-PRISM_ISSUER = ""
-PRISM_CLIENT_ID = ""
-PRISM_TEAM_ID = ""
-PRISM_JOIN_URL = ""
+SITE_URL = "https://new.nsimu.cn"
+PRISM_ISSUER = "https://prism.siiway.org"
+PRISM_CLIENT_ID = "prism_89XkSWDmdCTIF8B-f435_Q"
+PRISM_TEAM_ID = "820a20b4adffb9ce4caae70bdcb71fb1"
+PRISM_JOIN_URL = "https://prism.siiway.org/join/820a20b4adffb9ce4caae70bdcb71fb1"
 
 # ---- secrets（用命令写入，不入库）----
 # wrangler secret put PRISM_CLIENT_SECRET
 # wrangler secret put MOD_LICENSE_PRIVATE_KEY
 # wrangler secret put WEBHOOK_SECRET
+
+[[routes]]
+pattern = "new.nsimu.cn"
+custom_domain = true

@@ -21,10 +21,11 @@ Nuxt 4 + Nitro（`cloudflare_module`）+ Hono，跑在单个 Cloudflare Worker �
 ```bash
 pnpm install
 
-# 首次：创建 Cloudflare 资源，把返回的 id 填进 wrangler.toml
-wrangler d1 create nsuk
+# 首次：创建 Cloudflare 资源，把返回的 id 与名称填进 wrangler.toml
+# 资源名以 wrangler.toml 为准，下面是当前配置里的名字
+wrangler d1 create nsuk-new
 wrangler kv namespace create KV
-wrangler r2 bucket create nsuk-uploads
+wrangler r2 bucket create nsuk-uploads-new
 
 # 本地库建表
 pnpm db:migrate:local

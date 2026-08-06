@@ -8,13 +8,16 @@ NSUK 团队名下，否则受限账号在授权阶段会被静默拒绝。
 ## 一、创建 Cloudflare 资源
 
 ```bash
-wrangler d1 create nsuk
+wrangler d1 create nsuk-new
 wrangler kv namespace create KV
-wrangler r2 bucket create nsuk-uploads
+wrangler r2 bucket create nsuk-uploads-new
 ```
 
-把返回的 `database_id` 与 KV `id` 填进 `wrangler.toml`。R2 桶名已写死为
-`nsuk-uploads`，改名的话记得同步。
+把返回的 `database_id` 与 KV `id` 填进 `wrangler.toml`，R2 桶名同样要与
+`wrangler.toml` 里的 `bucket_name` 一致。
+
+数据库名不必与这里一致 —— `pnpm db:*` 脚本用的是 **binding 名 `DB`**，
+wrangler 支持按 binding 定位，所以改库名不需要同步 `package.json`。
 
 ## 二、在 Prism 侧建应用
 
