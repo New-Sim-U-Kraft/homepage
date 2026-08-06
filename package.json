@@ -13,6 +13,7 @@
     "preview": "wrangler dev",
     "deploy": "pnpm build && wrangler deploy",
     "atlas": "node scripts/build-atlas.mjs",
+    "gen:key": "node scripts/gen-license-key.mjs",
     "postinstall": "nuxt prepare && node scripts/build-atlas.mjs",
     "typecheck": "nuxt typecheck",
     "lint": "eslint .",

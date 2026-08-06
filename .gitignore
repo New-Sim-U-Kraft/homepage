@@ -20,6 +20,9 @@ dist/
 .env.*
 !.env.example
 
+# License 密钥。公钥本身不敏感，但不该混在仓库根目录里
+license-public.pem
+
 # 编辑器
 .idea/
 .vscode/
