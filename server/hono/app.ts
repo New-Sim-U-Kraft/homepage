@@ -2,6 +2,7 @@
 // 错误中间件沿用旧实现的设计：对外只回通用提示 + 错误码 ref，日志记完整信息（脱敏）。
 import { Hono } from 'hono'
 import type { AppBindings, Env } from './types'
+import { clientIp, rateLimit } from './lib/ratelimit'
 import modRoutes from './routes/mod'
 import authRoutes from './routes/auth'
 import publicRoutes from './routes/public'
@@ -59,9 +60,16 @@ app.onError((err, c) => {
 app.get('/healthz', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 
 app.get('/_ping', async (c) => {
-  // 只报告「是否已设置」，绝不回显任何值 —— 这是个公开端点。
-  // 登录链路要求 issuer/clientId/clientSecret/teamId 四项俱全，缺一项就整体
-  // 降级为「登录未配置」，不这样列出来的话没法判断到底缺哪个。
+  // 公开端点，加一道限流：它要查一次 D1，被刷会白白消耗配额
+  const limit = await rateLimit(c.env.KV, `ping:${clientIp(c.req.raw.headers)}`, 30, 60)
+  if (!limit.ok) return c.json({ ok: false, error: '请求过于频繁' }, 429)
+
+  // 逐项状态只报布尔值，且**仅在尚未配置齐全时**返回。
+  //
+  // 部署阶段需要它定位缺哪一项（clientSecret 是 secret，不在 wrangler.toml 里，
+  // 最容易漏）；而那个阶段站点本来就不可用，暴露这点信息没什么可失去的。
+  // 一旦配齐就不再输出 —— 稳定运行的站点没有理由对外公开自己的配置矩阵，
+  // 那只会告诉攻击者哪块功能尚未就绪、值得试探。
   const config = {
     PRISM_ISSUER: !!c.env?.PRISM_ISSUER,
     PRISM_CLIENT_ID: !!c.env?.PRISM_CLIENT_ID,
@@ -72,16 +80,13 @@ app.get('/_ping', async (c) => {
     MOD_LICENSE_PRIVATE_KEY: !!c.env?.MOD_LICENSE_PRIVATE_KEY,
     WEBHOOK_SECRET: !!c.env?.WEBHOOK_SECRET,
   }
+  const allConfigured = Object.values(config).every(Boolean)
 
   const out: Record<string, unknown> = {
     bindings: { DB: !!c.env?.DB, KV: !!c.env?.KV, R2: !!c.env?.R2 },
-    config,
-    loginConfigured:
-      config.PRISM_ISSUER &&
-      config.PRISM_CLIENT_ID &&
-      config.PRISM_CLIENT_SECRET &&
-      config.PRISM_TEAM_ID,
+    configured: allConfigured,
   }
+  if (!allConfigured) out.config = config
 
   try {
     const r = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM roles').first<{ n: number }>()
